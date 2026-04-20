@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff">
+<title>전기기사 CBT</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="stylesheet" as="style" crossorigin
+  href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <!-- 로딩 -->
+    <div id="loading" class="loading">불러오는 중…</div>
+
+    <!-- 홈 (모드 선택) -->
+    <section id="home" class="screen hidden">
+      <header class="home-header">
+        <h1>전기기사 CBT</h1>
+        <p class="sub" id="home-sub">회차를 선택해 시작하세요</p>
+      </header>
+      <div class="exam-picker" id="exam-picker"></div>
+      <div class="mode-grid">
+        <button class="mode-card" data-mode="study">
+          <div class="mode-title">학습 모드</div>
+          <div class="mode-desc">문제별로 정답/해설 즉시 확인</div>
+        </button>
+        <button class="mode-card" data-mode="subject">
+          <div class="mode-title">과목별 모드</div>
+          <div class="mode-desc">특정 과목 20문제만 풀이</div>
+        </button>
+        <button class="mode-card primary" data-mode="exam">
+          <div class="mode-title">모의고사 모드</div>
+          <div class="mode-desc">150분, 100문제, 과락/합격 판정</div>
+        </button>
+      </div>
+      <div class="home-footer">
+        <button class="ghost-btn" id="btn-bookmarks">★ 북마크 · 태그만 보기</button>
+        <button class="ghost-btn" id="btn-reset">진행도 초기화</button>
+      </div>
+    </section>
+
+    <!-- 리스트 뷰 -->
+    <section id="list-view" class="screen hidden">
+      <header class="app-header">
+        <button class="back-btn" id="list-back" aria-label="뒤로">←</button>
+        <div class="header-title" id="list-title">전체 문제</div>
+        <div class="header-right" id="list-timer"></div>
+      </header>
+      <div class="subject-tabs" id="subject-tabs"></div>
+      <div class="search-row">
+        <input id="search-input" type="search" placeholder="문제 검색" autocomplete="off">
+        <div class="filter-chips" id="filter-chips"></div>
+      </div>
+      <div class="question-list" id="question-list"></div>
+      <div class="list-footer">
+        <button id="btn-submit-exam" class="primary-btn hidden">시험 제출하기</button>
+      </div>
+    </section>
+
+    <!-- 상세 뷰 -->
+    <section id="detail-view" class="screen hidden">
+      <header class="app-header">
+        <button class="back-btn" id="detail-back" aria-label="뒤로">←</button>
+        <div class="header-title" id="detail-title">문제 1</div>
+        <div class="header-right">
+          <button class="icon-btn" id="btn-bookmark" aria-label="북마크">☆</button>
+        </div>
+      </header>
+      <div class="detail-scroll">
+        <div class="detail-meta">
+          <span class="subject-badge" id="detail-subject"></span>
+          <span class="q-no" id="detail-no"></span>
+        </div>
+        <div class="q-body" id="detail-question"></div>
+        <div class="q-image-note" id="detail-image-note"></div>
+        <div class="choices" id="detail-choices"></div>
+        <div class="answer-reveal hidden" id="detail-answer"></div>
+        <div class="tag-row">
+          <span class="tag-label">태그</span>
+          <div class="tag-picker" id="tag-picker"></div>
+        </div>
+        <button class="ai-btn" id="btn-ai-ask">🤖 AI에게 질문하기</button>
+      </div>
+      <nav class="detail-nav">
+        <button class="nav-btn" id="btn-prev">← 이전</button>
+        <button class="nav-btn primary" id="btn-next">다음 →</button>
+      </nav>
+    </section>
+
+    <!-- 결과 뷰 (모의고사 제출 후) -->
+    <section id="result-view" class="screen hidden">
+      <header class="app-header">
+        <button class="back-btn" id="result-back" aria-label="뒤로">←</button>
+        <div class="header-title">채점 결과</div>
+        <div class="header-right"></div>
+      </header>
+      <div class="result-scroll" id="result-content"></div>
+    </section>
+  </div>
+
+  <!-- AI 바텀시트 -->
+  <div id="ai-overlay" class="overlay hidden" aria-hidden="true"></div>
+  <div id="ai-sheet" class="sheet hidden" role="dialog" aria-modal="true" aria-label="AI 질문">
+    <div class="sheet-handle" id="sheet-handle"><span></span></div>
+    <header class="sheet-header">
+      <div class="sheet-title">AI에게 질문하기</div>
+      <button class="icon-btn" id="sheet-close" aria-label="닫기">✕</button>
+    </header>
+    <div class="sheet-context" id="sheet-context"></div>
+    <div class="sheet-body" id="sheet-messages">
+      <div class="suggestions" id="sheet-suggestions"></div>
+    </div>
+    <form class="sheet-input" id="sheet-form">
+      <textarea id="sheet-textarea" rows="1" placeholder="궁금한 점을 적어보세요" autocomplete="off"></textarea>
+      <button type="submit" class="primary-btn" id="sheet-send">전송</button>
+    </form>
+  </div>
+
+  <!-- 토스트 -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
