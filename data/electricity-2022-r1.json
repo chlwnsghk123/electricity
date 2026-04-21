@@ -1,0 +1,20 @@
+{
+  "meta": {
+    "exam": "전기기사",
+    "round": "2022년 제1회",
+    "date": "2022-03-05",
+    "total_questions": 100,
+    "pass_criteria": "과목당 40점 이상 + 평균 60점 이상",
+    "time_limit_minutes": 150,
+    "source_text": "TBD — 텍스트 소스 입력 대기 중",
+    "source_answers": "TBD",
+    "subjects": [
+      { "no": 1, "name": "전기자기학", "range": [1, 20] },
+      { "no": 2, "name": "전력공학", "range": [21, 40] },
+      { "no": 3, "name": "전기기기", "range": [41, 60] },
+      { "no": 4, "name": "회로이론 및 제어공학", "range": [61, 80] },
+      { "no": 5, "name": "전기설비기술기준 및 판단기준", "range": [81, 100] }
+    ]
+  },
+  "questions": []
+}
