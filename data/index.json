@@ -1,6 +1,46 @@
 {
   "exams": [
     {
+      "id": "electricity-2025-r1",
+      "title": "전기기사 2025년 1회 (세트1)",
+      "file": "data/electricity-2025-r1.json",
+      "date": "2025",
+      "count": 100,
+      "available": true
+    },
+    {
+      "id": "electricity-2025-r2",
+      "title": "전기기사 2025년 1회 (세트2)",
+      "file": "data/electricity-2025-r2.json",
+      "date": "2025",
+      "count": 100,
+      "available": true
+    },
+    {
+      "id": "electricity-2025-r3",
+      "title": "전기기사 2025년 1회 (세트3)",
+      "file": "data/electricity-2025-r3.json",
+      "date": "2025",
+      "count": 100,
+      "available": true
+    },
+    {
+      "id": "electricity-2025-r4",
+      "title": "전기기사 2025년 3회 (세트1)",
+      "file": "data/electricity-2025-r4.json",
+      "date": "2025",
+      "count": 100,
+      "available": true
+    },
+    {
+      "id": "electricity-2025-r5",
+      "title": "전기기사 2025년 3회 (세트2)",
+      "file": "data/electricity-2025-r5.json",
+      "date": "2025",
+      "count": 100,
+      "available": true
+    },
+    {
       "id": "electricity-2022-r2",
       "title": "전기기사 2022년 2회",
       "file": "data/electricity-2022-r2.json",
