@@ -549,19 +549,23 @@ function renderDetail(no) {
   qBody.textContent = q.q;
   renderMath(qBody);
 
-  // 이미지
+  // 이미지 (본문 + 선택지별)
+  // 파일 규칙:
+  //   images/<examId>/<no>.png      → 문제 본문 이미지
+  //   images/<examId>/<no>-<k>.png  → 선택지 k(1~N)의 이미지
+  // 두 종류 모두 파일 존재 여부로 자동 표시. has_image가 false여도 파일이 있으면 표시한다.
   const imgWrap = qs('#detail-image-wrap');
   const note = qs('#detail-image-note');
   imgWrap.innerHTML = '';
-  if (q.has_image) {
-    const img = new Image();
-    img.alt = q.image_note || `문제 ${q.no} 그림`;
-    img.src = `images/${state.examId}/${q.no}.png`;
-    img.onerror = () => { img.style.display = 'none'; };
-    imgWrap.appendChild(img);
-    note.textContent = q.image_note ? '📷 ' + q.image_note : '';
-  } else {
-    note.textContent = '';
+  {
+    const bodyImg = new Image();
+    bodyImg.alt = q.image_note || `문제 ${q.no} 그림`;
+    bodyImg.style.display = 'none';
+    bodyImg.onload = () => { bodyImg.style.display = ''; };
+    bodyImg.onerror = () => { bodyImg.remove(); };
+    bodyImg.src = `images/${state.examId}/${q.no}.png`;
+    imgWrap.appendChild(bodyImg);
+    note.textContent = (q.has_image && q.image_note) ? '📷 ' + q.image_note : '';
   }
 
   // 북마크 버튼
@@ -583,12 +587,25 @@ function renderDetail(no) {
       if (idx === q.a) cls += ' correct';
       else if (idx === selected) cls += ' wrong';
     }
+    // 선택지 이미지(있으면 텍스트 아래에 표시)
+    const content = el('div', { class: 'choice-content' }, [
+      el('span', { class: 'choice-text' }, text)
+    ]);
+    const ci = new Image();
+    ci.className = 'choice-img';
+    ci.alt = `선택지 ${idx} 그림`;
+    ci.style.display = 'none';
+    ci.onload = () => { ci.style.display = ''; };
+    ci.onerror = () => { ci.remove(); };
+    ci.src = `images/${state.examId}/${q.no}-${idx}.png`;
+    content.appendChild(ci);
+
     choices.appendChild(el('button', {
       class: cls,
       dataset: { action: 'choose', idx: String(idx) }
     }, [
       el('span', { class: 'num' }, CIRCLED[i] || String(idx)),
-      el('span', { class: 'choice-text' }, text)
+      content
     ]));
   });
   renderMath(choices);
@@ -1074,16 +1091,15 @@ function renderAiSheet() {
   body.scrollTop = body.scrollHeight;
 }
 
-// 이미지 → base64 (문제에 has_image=true이면 시도, 실패는 무시)
-async function fetchImageAsBase64(examId, no) {
+// 이미지 한 장을 base64로 읽어온다. 404/에러면 null.
+async function fetchOneImage(examId, name) {
   try {
-    const res = await fetch(`images/${examId}/${no}.png`, { cache: 'no-store' });
+    const res = await fetch(`images/${examId}/${name}`, { cache: 'no-store' });
     if (!res.ok) return null;
     const blob = await res.blob();
     return await new Promise(resolve => {
       const fr = new FileReader();
       fr.onload = () => {
-        // result는 'data:image/png;base64,....'. mime + base64만 잘라 반환
         const m = /^data:([^;]+);base64,(.*)$/.exec(fr.result || '');
         if (!m) return resolve(null);
         resolve({ mime: m[1], dataBase64: m[2] });
@@ -1092,6 +1108,19 @@ async function fetchImageAsBase64(examId, no) {
       fr.readAsDataURL(blob);
     });
   } catch { return null; }
+}
+
+// 한 문제에 속한 이미지 모두 수집: 본문 <no>.png + 선택지 <no>-1.png ~ <no>-N.png
+async function fetchQuestionImages(examId, no, choiceCount) {
+  const out = [];
+  const body = await fetchOneImage(examId, `${no}.png`);
+  if (body) out.push(body);
+  const n = Math.max(4, choiceCount || 0);
+  for (let i = 1; i <= n; i++) {
+    const ci = await fetchOneImage(examId, `${no}-${i}.png`);
+    if (ci) out.push(ci);
+  }
+  return out;
 }
 
 async function sendAiMessage(text) {
@@ -1109,12 +1138,9 @@ async function sendAiMessage(text) {
     .filter(m => !m.loading && !m.error)
     .map(m => ({ role: m.role === 'user' ? 'user' : 'model', content: m.content }));
 
-  // 이미지 첨부 (has_image일 때)
-  let images = [];
-  if (card.has_image) {
-    const img = await fetchImageAsBase64(state.examId, card.no);
-    if (img) images.push(img);
-  }
+  // 이미지 첨부: 본문(<no>.png) + 선택지(<no>-k.png). has_image 플래그와 무관하게
+  // 파일 존재 기반으로 수집(없으면 무시). 실제 문제와 시각 자료를 최대한 함께 전달.
+  const images = await fetchQuestionImages(state.examId, card.no, (card.c || []).length);
 
   try {
     const res = await fetch('/api/ask', {
