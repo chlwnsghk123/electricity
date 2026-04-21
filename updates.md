@@ -1,5 +1,8 @@
 # Updates
 
+## v1.04 — 2026-04-21
+- Vercel 빌드 실패 수정: `vercel.json`(buildCommand no-op, outputDirectory `.`) + `package.json`에 no-op `build` 스크립트 추가. 정적 + Serverless 구조이므로 실제 빌드 단계는 없음.
+
 ## v1.03 — 2026-04-21
 - `app.js`에 모드 진입(`enterMode`: 학습/과목/모의고사/북마크), 모의고사 150분 타이머(경고색/자동 제출), 이벤트 위임 바인딩 추가
 - AI 바텀시트 열기/닫기/드래그 닫기, 추천 질문 3종, 로딩/에러 메시지, 인라인 Markdown 렌더 구현
