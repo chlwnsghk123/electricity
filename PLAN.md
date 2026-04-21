@@ -43,7 +43,7 @@
 ├── data/
 │   ├── index.json                   ✅ (manifest)
 │   └── electricity-2022-r2.json    ✅ (100문제)
-├── vercel.json                      ✅ (buildCommand no-op — Vercel이 Node 프로젝트로 오인식하는 문제 회피)
+├── vercel.json                      ⬜ (현 구조로는 불필요 — Vercel 기본 설정으로 충분)
 ├── package.json                     ✅ (`@google/generative-ai` 단일 의존성)
 └── cbt_full.html                    ✅ 삭제 완료
 ```
