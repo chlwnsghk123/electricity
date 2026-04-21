@@ -1,0 +1,10 @@
+{
+  "name": "electricity-cbt",
+  "version": "1.0.0",
+  "private": true,
+  "description": "전기기사/전기공사기사 필기시험 CBT 시뮬레이터",
+  "type": "module",
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0"
+  }
+}
