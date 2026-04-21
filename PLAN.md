@@ -23,7 +23,7 @@
 | 1 | `CLAUDE.md` 작성 (에이전트 프로토콜) | ✅ | `52c8189` |
 | 2 | `updates.md` + 데이터 재배치 (`data/`) | ✅ | `4b93a13` |
 | 3 | `index.html` + `styles.css` (Toss 라이트 테마 골격) | ✅ | `7c3fd15` |
-| 4 | `app.js` (뷰/상태/모드/북마크/태그/localStorage) | ⬜ | - |
+| 4 | `app.js` (뷰/상태/모드/북마크/태그/localStorage) | 🟡 | 진행 중 (상수/상태/스토리지/유틸/초기화 + home/list/detail/result 렌더 완료, 모드 진입·타이머·이벤트 바인딩 남음) |
 | 5 | `/api/ask.js` Serverless + AI 바텀시트 연동 + 레거시 정리 | ⬜ | - |
 
 ---
@@ -37,7 +37,7 @@
 ├── updates.md                       ✅
 ├── index.html                       ✅ (마크업만, JS 미연결)
 ├── styles.css                       ✅ (Toss 라이트 테마)
-├── app.js                           ⬜ (4단계에서 작성)
+├── app.js                           🟡 (4단계 진행 중 — §6.1~§6.10 완료, 이벤트/모드/타이머/AI 남음)
 ├── api/
 │   └── ask.js                       ⬜ (5단계에서 작성)
 ├── data/
