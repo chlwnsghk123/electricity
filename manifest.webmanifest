@@ -1,0 +1,15 @@
+{
+  "name": "전기기사 CBT",
+  "short_name": "CBT",
+  "description": "전기기사/전기공사기사 필기시험 CBT 시뮬레이터",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#3182f6",
+  "lang": "ko",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" },
+    { "src": "favicon.svg", "sizes": "64x64", "type": "image/svg+xml" }
+  ]
+}
