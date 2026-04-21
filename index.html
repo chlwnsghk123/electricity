@@ -90,6 +90,9 @@
         <div class="header-title" id="detail-title">문제 1</div>
         <div class="header-right">
           <span id="detail-timer" class="hidden"></span>
+          <button class="icon-btn tag-trigger" id="btn-tag" aria-label="태그">
+            <span class="tag-trigger-dot" id="tag-trigger-dot"></span>
+          </button>
           <button class="icon-btn" id="btn-bookmark" aria-label="북마크">☆</button>
         </div>
       </header>
@@ -105,18 +108,22 @@
         <div class="choices" id="detail-choices"></div>
         <div class="answer-reveal hidden" id="detail-answer"></div>
 
-        <div class="tag-row">
-          <div class="tag-label">태그</div>
-          <div class="tag-picker" id="tag-picker"></div>
-        </div>
-
-        <button class="ai-btn" id="btn-ai-ask">🤖 AI에게 질문하기</button>
+        <button class="ai-btn" id="btn-ai-ask">AI에게 질문<span class="ai-btn-arrow">→</span></button>
 
         <div class="notes-section" id="notes-section">
           <div class="notes-header">
-            <span>📝 내 메모</span>
+            <span class="notes-title">내 메모</span>
             <span class="notes-count" id="notes-count"></span>
+            <button class="notes-add" id="btn-note-add" aria-label="메모 추가">＋</button>
           </div>
+          <form class="note-form hidden" id="note-form">
+            <textarea id="note-input" rows="2" placeholder="메모를 입력하세요 (Ctrl+Enter 저장)"></textarea>
+            <div class="note-form-actions">
+              <button type="button" class="ghost-btn" id="note-cancel">취소</button>
+              <button type="submit" class="primary-btn note-save">저장</button>
+            </div>
+          </form>
+          <div class="notes-hint">꾹 누르거나 우클릭으로 메모 삭제</div>
           <div class="notes-list" id="notes-list"></div>
         </div>
       </div>
@@ -125,6 +132,9 @@
         <button class="nav-btn" id="btn-next">다음 →</button>
       </nav>
     </section>
+
+    <!-- 태그 드롭다운 팝오버 -->
+    <div id="tag-popover" class="tag-popover hidden" role="menu" aria-label="태그 선택"></div>
 
     <!-- 결과 뷰 (모의고사 제출 후) -->
     <section id="result-view" class="screen hidden">

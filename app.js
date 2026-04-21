@@ -367,22 +367,33 @@ function subjectNameOf(q) {
 // Part 3. 렌더 — 홈 · 모드 선택 · 학습 리스트 · 상세 · 결과
 // ============================================================
 
+// 특정 회차에 대해 "맞춘 문제 수" = green 태그 개수
+function correctCountOfExam(examId) {
+  const all = loadLS(LS.tags, {});
+  const m = all && all[examId] || {};
+  let c = 0;
+  for (const k in m) if (m[k] === 'green') c++;
+  return c;
+}
+
 // ---------- 홈(회차 선택) ----------
 function renderHome() {
   const list = qs('#exam-list');
   if (!list) return;
   list.innerHTML = '';
   (state.manifest.exams || []).forEach(e => {
-    const meta = [];
-    if (e.date)  meta.push(e.date);
-    if (e.count) meta.push(`${e.count}문항`);
     const main = el('div', null, [
-      el('div', { class: 'title' }, e.title),
-      meta.length ? el('div', { class: 'meta' }, meta.join(' · ')) : null
+      el('div', { class: 'title' }, e.title)
     ]);
-    const right = e.available
+    const rightKids = [];
+    if (e.available && e.count) {
+      const correct = correctCountOfExam(e.id);
+      rightKids.push(el('span', { class: 'progress' }, `${correct} / ${e.count}`));
+    }
+    rightKids.push(e.available
       ? el('span', { class: 'chev' }, '›')
-      : el('span', { class: 'badge-soon' }, '준비 중');
+      : el('span', { class: 'badge-soon' }, '준비 중'));
+    const right = el('span', { class: 'exam-item-right' }, rightKids);
     const item = el('button', {
       class: 'exam-item',
       disabled: e.available ? null : true,
@@ -402,7 +413,9 @@ function renderModes() {
   }
   const meta = qs('#modes-meta');
   if (meta && state.exam) {
-    meta.textContent = `${state.exam.meta.total_questions || state.exam.questions.length}문제 · 모드를 선택하세요`;
+    const total = state.exam.meta.total_questions || state.exam.questions.length;
+    const correct = correctCountOfExam(state.examId);
+    meta.textContent = `진행률 ${correct} / ${total} · 맞춘 문제 수 기준`;
   }
 }
 
@@ -622,19 +635,12 @@ function renderDetail(no) {
     answerBox.textContent = '';
   }
 
-  // 태그 피커 (6색 + 의미)
-  const picker = qs('#tag-picker');
-  picker.innerHTML = '';
-  const curTag = getTag(q.no);
-  TAG_COLORS.forEach(c => {
-    picker.appendChild(el('button', {
-      class: 'tag-btn ' + c + (curTag === c ? ' active' : ''),
-      dataset: { action: 'tag', color: c }
-    }, [
-      el('span', { class: 'circle' }),
-      el('span', { class: 'meaning' }, TAG_MEANING[c])
-    ]));
-  });
+  // 헤더 태그 트리거(현재 색 인디케이터)
+  const trigger = qs('#tag-trigger-dot');
+  if (trigger) {
+    const curTag = getTag(q.no);
+    trigger.className = 'tag-trigger-dot ' + (curTag || 'gray');
+  }
 
   // 메모 섹션
   renderNotesList(q.no);
@@ -683,14 +689,115 @@ function renderNotesList(no) {
   }
   notes.forEach(n => {
     const body = el('div', { class: 'note-body', html: renderMarkdownInline(n.content) });
-    const meta = el('div', { class: 'note-meta' }, [
-      el('span', null, new Date(n.savedAt).toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' })),
-      el('button', { class: 'note-delete', dataset: { action: 'note-delete', id: n.id } }, '삭제')
-    ]);
-    const item = el('div', { class: 'note-item' }, [meta, body]);
+    const meta = el('div', { class: 'note-meta' },
+      new Date(n.savedAt).toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' })
+    );
+    const item = el('div', { class: 'note-item', dataset: { noteId: n.id } }, [meta, body]);
+    attachNoteDeleteHandlers(item, no, n.id);
     listBox.appendChild(item);
     renderMath(body);
   });
+}
+
+// ---------- 메모 삭제 (long-press · 우클릭) ----------
+const LONG_PRESS_MS = 600;
+function attachNoteDeleteHandlers(item, no, id) {
+  let timer = null;
+  const start = () => {
+    item.classList.add('pressing');
+    timer = setTimeout(() => {
+      item.classList.remove('pressing');
+      confirmDeleteNote(no, id);
+      timer = null;
+    }, LONG_PRESS_MS);
+  };
+  const cancel = () => {
+    item.classList.remove('pressing');
+    if (timer) { clearTimeout(timer); timer = null; }
+  };
+  item.addEventListener('touchstart', start, { passive: true });
+  item.addEventListener('touchend', cancel);
+  item.addEventListener('touchmove', cancel);
+  item.addEventListener('touchcancel', cancel);
+  item.addEventListener('mousedown', e => { if (e.button === 0) start(); });
+  item.addEventListener('mouseup', cancel);
+  item.addEventListener('mouseleave', cancel);
+  item.addEventListener('contextmenu', e => {
+    e.preventDefault();
+    cancel();
+    confirmDeleteNote(no, id);
+  });
+}
+function confirmDeleteNote(no, id) {
+  if (!confirm('이 메모를 삭제할까요?')) return;
+  deleteNote(no, id);
+  renderNotesList(no);
+  toast('메모를 삭제했어요');
+}
+
+// ---------- 태그 팝오버 (헤더 드롭다운) ----------
+function openTagPopover() {
+  const pop = qs('#tag-popover');
+  const btn = qs('#btn-tag');
+  if (!pop || !btn) return;
+  const no = state.currentNo;
+  if (no == null) return;
+  const curTag = getTag(no);
+  pop.innerHTML = '';
+  TAG_COLORS.forEach(c => {
+    pop.appendChild(el('button', {
+      class: 'tag-btn ' + c + (curTag === c ? ' active' : ''),
+      dataset: { action: 'tag', color: c }
+    }, [
+      el('span', { class: 'circle' }),
+      el('span', { class: 'meaning' }, TAG_MEANING[c])
+    ]));
+  });
+  // 위치(버튼 아래 정렬)
+  const r = btn.getBoundingClientRect();
+  pop.style.top = (r.bottom + 8) + 'px';
+  pop.style.right = (window.innerWidth - r.right) + 'px';
+  pop.style.left = '';
+  pop.classList.remove('hidden');
+  // 외부 클릭 닫기
+  setTimeout(() => document.addEventListener('click', closeTagPopoverOnOutside, { once: true, capture: true }), 0);
+}
+function closeTagPopover() {
+  const pop = qs('#tag-popover');
+  if (pop) pop.classList.add('hidden');
+}
+function closeTagPopoverOnOutside(e) {
+  const pop = qs('#tag-popover');
+  const btn = qs('#btn-tag');
+  if (!pop) return;
+  if (pop.contains(e.target) || (btn && btn.contains(e.target))) {
+    // 팝오버 내부 클릭은 별도 처리 후 유지될 수 있도록 그대로 패스
+    document.addEventListener('click', closeTagPopoverOnOutside, { once: true, capture: true });
+    return;
+  }
+  closeTagPopover();
+}
+
+// ---------- 메모 추가 폼 ----------
+function openNoteForm() {
+  qs('#note-form').classList.remove('hidden');
+  const ta = qs('#note-input');
+  ta.value = '';
+  setTimeout(() => ta.focus(), 0);
+}
+function closeNoteForm() {
+  qs('#note-form').classList.add('hidden');
+}
+function submitNoteForm() {
+  const ta = qs('#note-input');
+  const text = (ta.value || '').trim();
+  if (!text) { toast('내용을 입력해주세요'); return; }
+  if (state.currentNo == null) return;
+  addNote(state.currentNo, text);
+  ta.value = '';
+  closeNoteForm();
+  renderNotesList(state.currentNo);
+  toast('메모를 저장했어요');
 }
 
 // ---------- 결과 (채점) ----------
@@ -1055,7 +1162,7 @@ function renderAiSheet() {
     const sugWrap = el('div', { class: 'suggestions' });
     const suggestions = [
       '이 문제의 핵심 개념을 설명해줘',
-      card ? `왜 정답이 ${card.a}번인지 자세히 알려줘` : '정답 이유를 알려줘',
+      card ? `왜 정답이 ${card.a}번인지 간단히 알려줘` : '정답 이유를 간단히 알려줘',
       '이 주제에서 자주 틀리는 함정은 뭐야?'
     ];
     suggestions.forEach(s => {
@@ -1265,7 +1372,7 @@ function bindEvents() {
   });
 
   // 모드 뷰
-  qs('#modes-back').addEventListener('click', () => show('home'));
+  qs('#modes-back').addEventListener('click', () => { renderHome(); show('home'); });
   qs('#modes-view').addEventListener('click', e => {
     const card = e.target.closest('.mode-card');
     if (!card) return;
@@ -1273,7 +1380,7 @@ function bindEvents() {
   });
 
   // 리스트 뷰
-  qs('#list-back').addEventListener('click', () => show('modes'));
+  qs('#list-back').addEventListener('click', () => { renderModes(); show('modes'); });
   qs('#list-view').addEventListener('click', e => {
     const tab = e.target.closest('[data-action="subject-tab"]');
     if (tab) { state.subjectFilter = tab.dataset.name; renderList(); return; }
@@ -1325,28 +1432,44 @@ function bindEvents() {
     toggleBookmark(state.currentNo);
     renderDetail(state.currentNo);
   });
+
+  // 헤더 태그 트리거
+  qs('#btn-tag').addEventListener('click', e => {
+    e.stopPropagation();
+    const pop = qs('#tag-popover');
+    if (pop && !pop.classList.contains('hidden')) closeTagPopover();
+    else openTagPopover();
+  });
+  // 팝오버 내 태그 선택
+  qs('#tag-popover').addEventListener('click', e => {
+    const tg = e.target.closest('[data-action="tag"]');
+    if (!tg) return;
+    setTag(state.currentNo, tg.dataset.color);
+    closeTagPopover();
+    renderDetail(state.currentNo);
+  });
+
   qs('#detail-view').addEventListener('click', e => {
     const ch = e.target.closest('[data-action="choose"]');
     if (ch) { onChooseAnswer(parseInt(ch.dataset.idx, 10)); return; }
-    const tg = e.target.closest('[data-action="tag"]');
-    if (tg) {
-      setTag(state.currentNo, tg.dataset.color);
-      renderDetail(state.currentNo);
-      return;
-    }
-    const nd = e.target.closest('[data-action="note-delete"]');
-    if (nd) {
-      deleteNote(state.currentNo, nd.dataset.id);
-      renderNotesList(state.currentNo);
-      return;
-    }
   });
   qs('#btn-ai-ask').addEventListener('click', openAiSheet);
 
+  // 메모 + 버튼 / 폼
+  qs('#btn-note-add').addEventListener('click', openNoteForm);
+  qs('#note-cancel').addEventListener('click', closeNoteForm);
+  qs('#note-form').addEventListener('submit', e => { e.preventDefault(); submitNoteForm(); });
+  qs('#note-input').addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      submitNoteForm();
+    }
+  });
+
   // 결과 뷰
-  qs('#result-back').addEventListener('click', () => show('modes'));
+  qs('#result-back').addEventListener('click', () => { renderModes(); show('modes'); });
   qs('#result-view').addEventListener('click', e => {
-    if (e.target.closest('[data-action="back-home"]')) show('home');
+    if (e.target.closest('[data-action="back-home"]')) { renderHome(); show('home'); }
   });
 
   // AI 바텀시트

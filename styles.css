@@ -170,9 +170,21 @@ input, textarea { font-family: inherit; color: var(--text-1); }
   color: var(--text-3);
   margin-top: 2px;
 }
+.exam-item .progress {
+  font-size: 12px;
+  color: var(--primary);
+  font-weight: 600;
+  margin-right: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.exam-item[disabled] .progress { color: var(--text-3); font-weight: 500; }
 .exam-item .chev {
   color: var(--text-3);
   font-size: 16px;
+}
+.exam-item-right {
+  display: inline-flex;
+  align-items: center;
 }
 .exam-item[disabled] {
   opacity: 0.45;
@@ -553,18 +565,82 @@ input, textarea { font-family: inherit; color: var(--text-1); }
   flex: 1;
 }
 
+/* 헤더 태그 트리거 (오른쪽 위) */
+.tag-trigger {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.tag-trigger-dot {
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--tag-gray);
+  border: 1px solid var(--border);
+  transition: background .15s;
+}
+.tag-trigger-dot.green  { background: var(--tag-green);  border-color: transparent; }
+.tag-trigger-dot.red    { background: var(--tag-red);    border-color: transparent; }
+.tag-trigger-dot.orange { background: var(--tag-orange); border-color: transparent; }
+.tag-trigger-dot.yellow { background: var(--tag-yellow); border-color: transparent; }
+.tag-trigger-dot.blue   { background: var(--tag-blue);   border-color: transparent; }
+.tag-trigger-dot.gray   { background: var(--tag-gray);   border-color: var(--border); }
+
+/* 태그 팝오버 (드롭다운) */
+.tag-popover {
+  position: fixed;
+  z-index: 70;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 10px 24px rgba(0,0,0,0.12);
+  padding: 6px;
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.tag-popover .tag-btn {
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+.tag-popover .tag-btn:hover,
+.tag-popover .tag-btn:active { background: var(--surface); }
+.tag-popover .tag-btn.active {
+  background: var(--surface);
+  border: 0;
+  font-weight: 600;
+}
+.tag-popover .tag-btn .circle {
+  width: 12px; height: 12px;
+}
+
+/* AI 버튼 — 미니멀 아웃라인 */
 .ai-btn {
   width: 100%;
   margin-top: 20px;
-  padding: 14px;
+  padding: 14px 18px;
   border-radius: var(--radius-md);
-  background: var(--surface);
-  color: var(--text-1);
-  font-size: 15px;
+  background: var(--bg);
+  color: var(--primary);
+  font-size: 14px;
   font-weight: 600;
-  border: 1px solid var(--border);
+  letter-spacing: 0;
+  border: 1px solid var(--primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: background .12s, border-color .12s;
 }
-.ai-btn:active { background: var(--surface-2); }
+.ai-btn:active { background: var(--primary-weak); }
+.ai-btn .ai-btn-arrow {
+  font-weight: 500;
+  transition: transform .12s;
+}
+.ai-btn:active .ai-btn-arrow { transform: translateX(2px); }
 
 #btn-bookmark.on { color: var(--warn); }
 
@@ -576,15 +652,71 @@ input, textarea { font-family: inherit; color: var(--text-1); }
 }
 .notes-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
   font-size: 13px;
   color: var(--text-2);
   margin-bottom: 8px;
+  gap: 8px;
 }
+.notes-title { font-weight: 600; color: var(--text-1); }
 .notes-count {
   font-size: 12px;
   color: var(--text-3);
+  margin-right: auto;
+}
+.notes-add {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text-1);
+  font-size: 16px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+}
+.notes-add:active { background: var(--surface-2); }
+
+.note-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 10px;
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+}
+#note-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  font-size: 13px;
+  resize: vertical;
+  min-height: 52px;
+  line-height: 1.5;
+  outline: none;
+}
+#note-input:focus { border-color: var(--primary); }
+.note-form-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.note-form-actions .ghost-btn { padding: 8px 14px; font-size: 13px; }
+.note-form-actions .note-save {
+  height: 36px;
+  width: auto;
+  padding: 0 18px;
+  font-size: 13px;
+}
+.notes-hint {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-bottom: 8px;
+  user-select: none;
 }
 .notes-list {
   display: flex;
@@ -600,21 +732,18 @@ input, textarea { font-family: inherit; color: var(--text-1); }
   line-height: 1.5;
   position: relative;
 }
+.note-item {
+  transition: background .15s;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+.note-item.pressing { background: rgba(240, 68, 82, 0.08); }
 .note-item .note-meta {
   font-size: 11px;
   color: var(--text-3);
   margin-bottom: 4px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
 }
-.note-item .note-delete {
-  font-size: 11px;
-  color: var(--text-3);
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-.note-item .note-delete:active { background: var(--surface-2); }
 .note-item .note-body {
   word-break: break-word;
   white-space: pre-wrap;
