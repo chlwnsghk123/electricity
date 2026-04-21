@@ -23,8 +23,8 @@
 | 1 | `CLAUDE.md` 작성 (에이전트 프로토콜) | ✅ | `52c8189` |
 | 2 | `updates.md` + 데이터 재배치 (`data/`) | ✅ | `4b93a13` |
 | 3 | `index.html` + `styles.css` (Toss 라이트 테마 골격) | ✅ | `7c3fd15` |
-| 4 | `app.js` (뷰/상태/모드/북마크/태그/localStorage) | 🟡 | 진행 중 (상수/상태/스토리지/유틸/초기화 + home/list/detail/result 렌더 완료, 모드 진입·타이머·이벤트 바인딩 남음) |
-| 5 | `/api/ask.js` Serverless + AI 바텀시트 연동 + 레거시 정리 | ⬜ | - |
+| 4 | `app.js` (뷰/상태/모드/북마크/태그/localStorage) | ✅ | (이번 브랜치) |
+| 5 | `/api/ask.js` Serverless + AI 바텀시트 연동 + 레거시 정리 | ✅ | (이번 브랜치) |
 
 ---
 
@@ -37,14 +37,15 @@
 ├── updates.md                       ✅
 ├── index.html                       ✅ (마크업만, JS 미연결)
 ├── styles.css                       ✅ (Toss 라이트 테마)
-├── app.js                           🟡 (4단계 진행 중 — §6.1~§6.10 완료, 이벤트/모드/타이머/AI 남음)
+├── app.js                           ✅ (4·5단계 — 뷰/모드/타이머/이벤트/AI 바텀시트 포함)
 ├── api/
-│   └── ask.js                       ⬜ (5단계에서 작성)
+│   └── ask.js                       ✅ (Gemini 프록시, fallback 모델 포함)
 ├── data/
 │   ├── index.json                   ✅ (manifest)
 │   └── electricity-2022-r2.json    ✅ (100문제)
-├── vercel.json                      ⬜ (필요 시 5단계에서)
-└── cbt_full.html                    🗑 (5단계에서 삭제)
+├── vercel.json                      ⬜ (현 구조로는 불필요 — Vercel 기본 설정으로 충분)
+├── package.json                     ✅ (`@google/generative-ai` 단일 의존성)
+└── cbt_full.html                    ✅ 삭제 완료
 ```
 
 ---

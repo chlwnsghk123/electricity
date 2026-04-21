@@ -650,3 +650,450 @@ function renderResult() {
     dataset: { action: 'back-home' }
   }, '홈으로'));
 }
+
+// ============================================================
+// 11. 모드 진입
+// ============================================================
+function enterMode(mode) {
+  if (!state.exam) return;
+  state.mode = mode;
+  state.search = '';
+  state.tagFilter = null;
+  state.currentNo = null;
+
+  if (mode === 'exam') {
+    // 기존 답안/타이머 리셋 확인
+    const answered = Object.keys(getAnswers()).length;
+    if (answered > 0 && !confirm(`기존 답안(${answered}개)을 모두 지우고 모의고사를 시작할까요?`)) {
+      state.mode = null;
+      return;
+    }
+    resetExamAnswers();
+    state.subjectFilter = 'all';
+    startTimer();
+    saveSession({ examId: state.examId, mode, startedAt: state.timer.startedAt, lastNo: null });
+    renderList();
+    show('list');
+  } else if (mode === 'study') {
+    state.subjectFilter = 'all';
+    stopTimer();
+    saveSession({ examId: state.examId, mode, startedAt: 0, lastNo: null });
+    renderList();
+    show('list');
+  } else if (mode === 'subject') {
+    stopTimer();
+    // 과목 선택 (간단한 prompt 대체로 1번 과목부터 리스트로)
+    const choices = state.subjectNames.map((n, i) => `${i + 1}. ${n}`).join('\n');
+    const picked = prompt('과목 번호를 입력하세요:\n' + choices, '1');
+    const idx = parseInt(picked, 10);
+    if (!idx || idx < 1 || idx > state.subjectNames.length) {
+      state.mode = null;
+      return;
+    }
+    state.subjectFilter = state.subjectNames[idx - 1];
+    saveSession({ examId: state.examId, mode, startedAt: 0, lastNo: null, subject: state.subjectFilter });
+    renderList();
+    show('list');
+  } else if (mode === 'bookmarks') {
+    stopTimer();
+    state.subjectFilter = 'all';
+    state.tagFilter = 'bookmark';
+    saveSession({ examId: state.examId, mode, startedAt: 0, lastNo: null });
+    renderList();
+    show('list');
+  }
+}
+
+function openDetail(no) {
+  if (!state.filteredNos.length) {
+    // list를 렌더한 적이 없으면 전체 번호로 초기화
+    state.filteredNos = state.exam.questions.map(q => q.no);
+  }
+  renderDetail(no);
+  show('detail');
+}
+
+function submitExam() {
+  const answered = Object.keys(getAnswers()).length;
+  const total = state.exam.questions.length;
+  if (answered < total && !confirm(`진행한 문제 ${answered} / ${total}. 제출할까요?`)) return;
+  stopTimer();
+  renderResult();
+  show('result');
+}
+
+// ============================================================
+// 12. 모의고사 타이머
+// ============================================================
+function startTimer() {
+  const now = Date.now();
+  state.timer.startedAt = now;
+  state.timer.limitMs = EXAM_TIME_LIMIT_MS;
+  state.timer.running = true;
+  if (state.timer.intervalId) clearInterval(state.timer.intervalId);
+  state.timer.intervalId = setInterval(tickTimer, 1000);
+  tickTimer();
+}
+
+function stopTimer() {
+  if (state.timer.intervalId) clearInterval(state.timer.intervalId);
+  state.timer.intervalId = null;
+  state.timer.running = false;
+}
+
+function tickTimer() {
+  const elapsed = Date.now() - state.timer.startedAt;
+  const remain = state.timer.limitMs - elapsed;
+  const timerEl = qs('#list-timer');
+  if (timerEl) {
+    timerEl.textContent = '⏱ ' + formatTime(Math.max(0, remain));
+    if (remain <= TIMER_WARN_MS) timerEl.classList.add('warn');
+    else timerEl.classList.remove('warn');
+  }
+  if (remain <= 0) {
+    stopTimer();
+    toast('시간이 종료되어 자동 제출됩니다');
+    renderResult();
+    show('result');
+  }
+}
+
+// ============================================================
+// 13. AI 바텀시트
+// ============================================================
+function openAiSheet() {
+  state.ai.open = true;
+  state.ai.messages = [];
+  renderAiSheet();
+  qs('#ai-overlay').classList.remove('hidden');
+  qs('#ai-sheet').classList.remove('hidden');
+  requestAnimationFrame(() => {
+    qs('#ai-overlay').classList.add('show');
+    qs('#ai-sheet').classList.add('show');
+  });
+  document.body.style.overflow = 'hidden';
+}
+
+function closeAiSheet() {
+  state.ai.open = false;
+  const sheet = qs('#ai-sheet');
+  const overlay = qs('#ai-overlay');
+  sheet.classList.remove('show');
+  overlay.classList.remove('show');
+  sheet.style.transform = '';
+  setTimeout(() => {
+    sheet.classList.add('hidden');
+    overlay.classList.add('hidden');
+  }, 250);
+  document.body.style.overflow = '';
+}
+
+function currentCard() {
+  if (!state.exam || state.currentNo == null) return null;
+  const q = state.exam.questions.find(x => x.no === state.currentNo);
+  if (!q) return null;
+  return {
+    no: q.no,
+    subject: subjectNameOf(q),
+    q: q.q,
+    c: q.c,
+    a: q.a
+  };
+}
+
+function renderAiSheet() {
+  const card = currentCard();
+  const ctx = qs('#sheet-context');
+  if (card) {
+    ctx.innerHTML = '';
+    ctx.appendChild(el('strong', null, `문제 ${card.no} · ${card.subject}`));
+    ctx.appendChild(el('div', null, preview(card.q, 160)));
+  }
+
+  const body = qs('#sheet-messages');
+  body.innerHTML = '';
+
+  if (state.ai.messages.length === 0) {
+    const sugWrap = el('div', { class: 'suggestions', id: 'sheet-suggestions' });
+    [
+      '이 문제의 핵심 개념을 설명해줘',
+      card ? `왜 정답이 ${card.a}번인지 자세히 알려줘` : '정답 이유를 알려줘',
+      '이 주제에서 자주 틀리는 함정은 뭐야?'
+    ].forEach(s => {
+      sugWrap.appendChild(el('button', {
+        class: 'suggestion-btn',
+        dataset: { action: 'suggest' }
+      }, s));
+    });
+    body.appendChild(sugWrap);
+  } else {
+    state.ai.messages.forEach(m => {
+      const cls = 'msg ' + m.role + (m.loading ? ' loading' : '') + (m.error ? ' error' : '');
+      const node = el('div', { class: cls });
+      if (m.role === 'ai' && !m.loading && !m.error) {
+        node.innerHTML = renderMarkdownInline(m.content);
+      } else {
+        node.textContent = m.content;
+      }
+      body.appendChild(node);
+    });
+    body.scrollTop = body.scrollHeight;
+  }
+}
+
+async function sendAiMessage(text) {
+  const card = currentCard();
+  if (!card) { toast('문제 문맥이 없습니다'); return; }
+  const userMsg = { role: 'user', content: text };
+  const loadingMsg = { role: 'ai', content: '생각하는 중…', loading: true };
+  state.ai.messages.push(userMsg, loadingMsg);
+  renderAiSheet();
+
+  const history = state.ai.messages
+    .filter(m => !m.loading && !m.error)
+    .slice(0, -1) // exclude just-pushed user msg? actually include; drop last user to avoid dup in server
+    .map(m => ({ role: m.role === 'user' ? 'user' : 'model', content: m.content }));
+
+  try {
+    const res = await fetch('/api/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ card, question: text, history })
+    });
+    const data = await res.json().catch(() => ({}));
+    // 로딩 메시지 교체
+    const li = state.ai.messages.indexOf(loadingMsg);
+    if (li !== -1) state.ai.messages.splice(li, 1);
+    if (!res.ok || data.error) {
+      state.ai.messages.push({ role: 'ai', content: data.error || ('요청 실패 (' + res.status + ')'), error: true });
+    } else {
+      state.ai.messages.push({ role: 'ai', content: data.answer || '(빈 응답)' });
+    }
+  } catch (err) {
+    const li = state.ai.messages.indexOf(loadingMsg);
+    if (li !== -1) state.ai.messages.splice(li, 1);
+    state.ai.messages.push({ role: 'ai', content: '네트워크 오류: ' + (err.message || err), error: true });
+  }
+  renderAiSheet();
+}
+
+// 드래그 닫기
+function bindSheetDrag() {
+  const handle = qs('#sheet-handle');
+  const sheet = qs('#ai-sheet');
+  if (!handle || !sheet) return;
+  let startY = 0, curY = 0, dragging = false;
+
+  const start = (y) => { startY = y; curY = y; dragging = true; sheet.style.transition = 'none'; };
+  const move = (y) => {
+    if (!dragging) return;
+    curY = y;
+    const dy = Math.max(0, curY - startY);
+    sheet.style.transform = `translateY(${dy}px)`;
+  };
+  const end = () => {
+    if (!dragging) return;
+    dragging = false;
+    sheet.style.transition = '';
+    const dy = Math.max(0, curY - startY);
+    if (dy > 80) closeAiSheet();
+    else sheet.style.transform = '';
+  };
+
+  handle.addEventListener('touchstart', e => start(e.touches[0].clientY), { passive: true });
+  handle.addEventListener('touchmove',  e => move(e.touches[0].clientY),  { passive: true });
+  handle.addEventListener('touchend', end);
+  handle.addEventListener('mousedown', e => { start(e.clientY); e.preventDefault(); });
+  document.addEventListener('mousemove', e => move(e.clientY));
+  document.addEventListener('mouseup', end);
+}
+
+// ============================================================
+// 14. 이벤트 바인딩
+// ============================================================
+function bindEvents() {
+  // 홈: 모드 카드
+  qsa('.mode-card').forEach(card => {
+    card.addEventListener('click', () => enterMode(card.dataset.mode));
+  });
+
+  // 홈: 북마크만 보기 / 진행도 초기화
+  const bmBtn = qs('#btn-bookmarks');
+  if (bmBtn) bmBtn.addEventListener('click', () => enterMode('bookmarks'));
+  const resetBtn = qs('#btn-reset');
+  if (resetBtn) resetBtn.addEventListener('click', () => {
+    if (!confirm('이 회차의 답안/북마크/태그를 모두 지울까요?')) return;
+    patchLS(LS.answers, {}, all => { all[state.examId] = {}; return all; });
+    patchLS(LS.bookmarks, {}, all => { all[state.examId] = []; return all; });
+    patchLS(LS.tags, {}, all => { all[state.examId] = {}; return all; });
+    toast('초기화 완료');
+  });
+
+  // 홈: 회차 선택
+  document.addEventListener('click', async e => {
+    const chip = e.target.closest('[data-action="pick-exam"]');
+    if (!chip) return;
+    const id = chip.dataset.examId;
+    if (id === state.examId) return;
+    await loadExam(id);
+    renderHome();
+  });
+
+  // 리스트: 뒤로
+  const listBack = qs('#list-back');
+  if (listBack) listBack.addEventListener('click', () => { stopTimer(); show('home'); });
+
+  // 리스트: 과목 탭 / 필터 칩 / 카드 / 제출
+  const listView = qs('#list-view');
+  if (listView) {
+    listView.addEventListener('click', e => {
+      const tab = e.target.closest('[data-action="subject-tab"]');
+      if (tab) {
+        state.subjectFilter = tab.dataset.name;
+        renderList();
+        return;
+      }
+      const chip = e.target.closest('[data-action="tag-filter"]');
+      if (chip) {
+        const key = chip.dataset.key;
+        state.tagFilter = (state.tagFilter === key) ? null : key;
+        renderList();
+        return;
+      }
+      const card = e.target.closest('[data-action="open-detail"]');
+      if (card) {
+        openDetail(parseInt(card.dataset.no, 10));
+        return;
+      }
+    });
+  }
+
+  const submitBtn = qs('#btn-submit-exam');
+  if (submitBtn) submitBtn.addEventListener('click', submitExam);
+
+  // 리스트: 검색
+  const searchInput = qs('#search-input');
+  if (searchInput) {
+    const onSearch = debounce(() => { state.search = searchInput.value; renderList(); }, 150);
+    searchInput.addEventListener('input', onSearch);
+  }
+
+  // 상세: 뒤로 / 이전 / 다음 / 북마크 / 선택지 / 태그 / AI
+  const detailBack = qs('#detail-back');
+  if (detailBack) detailBack.addEventListener('click', () => { show('list'); renderList(); });
+
+  const prev = qs('#btn-prev');
+  if (prev) prev.addEventListener('click', () => {
+    const list = state.filteredNos;
+    const i = list.indexOf(state.currentNo);
+    if (i > 0) openDetail(list[i - 1]);
+  });
+  const next = qs('#btn-next');
+  if (next) next.addEventListener('click', () => {
+    const list = state.filteredNos;
+    const i = list.indexOf(state.currentNo);
+    if (i !== -1 && i < list.length - 1) openDetail(list[i + 1]);
+  });
+
+  const bm = qs('#btn-bookmark');
+  if (bm) bm.addEventListener('click', () => {
+    toggleBookmark(state.currentNo);
+    renderDetail(state.currentNo);
+  });
+
+  const detailView = qs('#detail-view');
+  if (detailView) {
+    detailView.addEventListener('click', e => {
+      const choose = e.target.closest('[data-action="choose"]');
+      if (choose) {
+        const idx = parseInt(choose.dataset.idx, 10);
+        setAnswer(state.currentNo, idx);
+        renderDetail(state.currentNo);
+        return;
+      }
+      const tagBtn = e.target.closest('[data-action="tag"]');
+      if (tagBtn) {
+        const color = tagBtn.dataset.color;
+        setTag(state.currentNo, color);
+        renderDetail(state.currentNo);
+        return;
+      }
+    });
+  }
+
+  const aiBtn = qs('#btn-ai-ask');
+  if (aiBtn) aiBtn.addEventListener('click', openAiSheet);
+
+  // 결과: 뒤로 / 오답 다시 풀기 / 홈
+  const resultBack = qs('#result-back');
+  if (resultBack) resultBack.addEventListener('click', () => show('home'));
+  const resultView = qs('#result-view');
+  if (resultView) {
+    resultView.addEventListener('click', e => {
+      const review = e.target.closest('[data-action="review-wrong"]');
+      if (review) {
+        const wrong = state.exam.questions.filter(q => {
+          const a = getAnswer(q.no);
+          return a != null && a !== q.a;
+        }).map(q => q.no);
+        if (!wrong.length) { toast('오답이 없습니다'); return; }
+        state.mode = 'study';
+        state.subjectFilter = 'all';
+        state.tagFilter = null;
+        state.search = '';
+        state.filteredNos = wrong;
+        // 오답만 보이도록 간단히: 첫 오답 상세로 이동
+        openDetail(wrong[0]);
+        return;
+      }
+      if (e.target.closest('[data-action="back-home"]')) {
+        show('home');
+      }
+    });
+  }
+
+  // AI 바텀시트
+  const overlay = qs('#ai-overlay');
+  if (overlay) overlay.addEventListener('click', closeAiSheet);
+  const sheetClose = qs('#sheet-close');
+  if (sheetClose) sheetClose.addEventListener('click', closeAiSheet);
+
+  const sheetBody = qs('#sheet-messages');
+  if (sheetBody) {
+    sheetBody.addEventListener('click', e => {
+      const sug = e.target.closest('[data-action="suggest"]');
+      if (sug) {
+        const ta = qs('#sheet-textarea');
+        ta.value = sug.textContent;
+        ta.focus();
+        autoResizeTextarea(ta);
+      }
+    });
+  }
+
+  const form = qs('#sheet-form');
+  if (form) {
+    form.addEventListener('submit', e => {
+      e.preventDefault();
+      const ta = qs('#sheet-textarea');
+      const text = ta.value.trim();
+      if (!text) return;
+      ta.value = '';
+      autoResizeTextarea(ta);
+      sendAiMessage(text);
+    });
+  }
+
+  const ta = qs('#sheet-textarea');
+  if (ta) {
+    ta.addEventListener('input', () => autoResizeTextarea(ta));
+    // Enter는 줄바꿈만. 전송은 버튼으로.
+  }
+
+  bindSheetDrag();
+}
+
+function autoResizeTextarea(ta) {
+  ta.style.height = 'auto';
+  ta.style.height = Math.min(120, ta.scrollHeight) + 'px';
+}
