@@ -11,9 +11,6 @@
     {
       "id": "electricity-2022-r1",
       "title": "전기기사 2022년 1회",
-      "file": "data/electricity-2022-r1.json",
-      "date": "2022-03-05",
-      "count": 100,
       "available": false
     },
     {
