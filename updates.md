@@ -1,5 +1,19 @@
 # Updates
 
+## v1.09 — 2026-04-21
+- **문서 구조 리팩토링**: CLAUDE.md를 얇은 진입점으로 재작성. 디테일은 신규 `docs/` 폴더에 분리.
+  - `docs/ARCHITECTURE.md` 파일 트리, app.js Part 섹션 맵, 화면 흐름
+  - `docs/DATA-SCHEMA.md` manifest · 회차 JSON · LaTeX · 이미지 규칙
+  - `docs/STORAGE.md` LS 키 + 메모리 state + 자동 태그 정책 + 진행률 계산
+  - `docs/UI-MODES.md` 5화면 · 3모드 · 6색 태그 · 4개 시트 동작
+  - `docs/AI-INTEGRATION.md` Gemini 프록시 + 멀티모달 + 환경변수
+  - `docs/DEPLOYMENT.md` Vercel + PWA + 체크리스트
+  - `docs/WORKFLOW.md` 자주 하는 작업 절차 + 트러블슈팅 + 커밋 규칙
+  - `docs/README.md` 인덱스
+- **PLAN.md 정리**: 1~5단계 완료 로드맵을 제거하고 "앞으로 할 일"만 남김. 변경 이력은 `updates.md` 한 곳으로 단일화.
+- **images/README.md** 갱신: 본문/선택지 이미지 규칙 + 활성 회차 표.
+- 코드 변경 없음(문서·구조만). 새 정보가 생기면 CLAUDE.md가 아니라 해당 docs 갱신.
+
 ## v1.08 — 2026-04-21
 - **AI 버튼 세련화**: 로봇 이모지 제거, `AI에게 질문 →` 아웃라인 프라이머리 버튼으로 교체.
 - **추천 질문 톤 조정**: `자세히 알려줘` → `간단히 알려줘`.
