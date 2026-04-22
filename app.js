@@ -11,7 +11,8 @@ const LS = {
   bookmarks: 'cbt_bookmarks_v1', // { [examId]: number[] }
   tags:      'cbt_tags_v2',      // { [examId]: { [no]: color } } — 6색으로 확장되어 v2
   notes:     'cbt_notes_v1',     // { [examId]: { [no]: [{id, content, savedAt}] } }
-  ai:        'cbt_ai_v1',        // { [examId]: { [no]: [{role, content, saved?}] } } — 문제별 AI 대화 보존
+  ai:        'cbt_ai_v2',        // { [examId]: { [no]: { lastOpenedAt: number, messages: [{role, content, saved?}] } } }
+                                  // 70분(AI_TTL_MS) 무활동 시 자동 만료 — 열람·송수신 시각을 기준으로 갱신
   lastExam:  'cbt_last_exam_v1', // string (examId)
   settings:  'cbt_settings_v1'   // { theme?: 'light'|'dark' }
 };
@@ -37,6 +38,9 @@ const EXAM_HALF_MS  =  75 * 60 * 1000;
 const PER_SUBJECT_FULL = 20;
 const PER_SUBJECT_HALF = 10;
 const TIMER_WARN_MS = 10 * 60 * 1000;
+
+// AI 대화 자동 만료: 마지막 열람·송수신으로부터 70분
+const AI_TTL_MS = 70 * 60 * 1000;
 
 const CIRCLED = ['①', '②', '③', '④', '⑤'];
 
@@ -373,9 +377,24 @@ function resetCurrentExam() {
 
 // ---- AI 대화 per-문제 영속화 ----
 // 시트를 닫아도 대화가 남고, 다시 열면 복구된다.
+// 단, 마지막 열람·송수신으로부터 AI_TTL_MS(70분) 이상 지났으면 만료되어 삭제된다.
 function getAiMessages(no) {
   const all = _scope(LS.ai, {});
-  return Array.isArray(all[no]) ? all[no] : [];
+  const e = all && all[no];
+  if (!e || !Array.isArray(e.messages) || e.messages.length === 0) return [];
+  const age = Date.now() - (e.lastOpenedAt || 0);
+  if (age > AI_TTL_MS) {
+    // 만료 — 저장소에서 제거 후 빈 배열 반환
+    patchLS(LS.ai, {}, all2 => {
+      const id = state.examId;
+      const m = { ...(all2[id] || {}) };
+      delete m[no];
+      all2[id] = m;
+      return all2;
+    });
+    return [];
+  }
+  return e.messages.map(x => ({ ...x }));
 }
 function saveAiMessages(no, messages) {
   patchLS(LS.ai, {}, all => {
@@ -385,8 +404,21 @@ function saveAiMessages(no, messages) {
       .filter(x => x && !x.loading && !x.error)
       .map(x => ({ role: x.role, content: x.content, saved: !!x.saved }));
     if (clean.length === 0) delete m[no];
-    else m[no] = clean;
+    else m[no] = { lastOpenedAt: Date.now(), messages: clean };
     all[id] = m;
+    return all;
+  });
+}
+// 대화를 변경하지 않고 열람 시각만 갱신 (TTL 리셋)
+function touchAiAccess(no) {
+  patchLS(LS.ai, {}, all => {
+    const id = state.examId;
+    const m = { ...(all[id] || {}) };
+    const e = m[no];
+    if (e && Array.isArray(e.messages) && e.messages.length) {
+      m[no] = { ...e, lastOpenedAt: Date.now() };
+      all[id] = m;
+    }
     return all;
   });
 }
@@ -1253,8 +1285,11 @@ function currentCard() {
 
 function openAiSheet() {
   // 문제별로 대화를 보존한다. 현재 문제의 저장된 대화 로드.
+  // getAiMessages 내부에서 TTL 만료 시 자동 삭제된다.
   const no = state.currentNo;
   state.ai.messages = no != null ? getAiMessages(no).map(m => ({ ...m })) : [];
+  // 대화가 남아 있으면 열람 시각을 갱신해 TTL 리셋
+  if (no != null && state.ai.messages.length) touchAiAccess(no);
   state.ai.contextExpanded = true;
   renderAiSheet();
   qs('#ai-overlay').classList.remove('hidden');
