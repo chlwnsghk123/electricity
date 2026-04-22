@@ -7,8 +7,9 @@
 | `cbt_bookmarks_v1` | `{ [examId]: number[] }` | 북마크 문제 번호 목록 |
 | `cbt_tags_v2`      | `{ [examId]: { [no]: 'gray'\|'green'\|'red'\|'orange'\|'yellow'\|'blue' } }` | 6색 태그 |
 | `cbt_notes_v1`     | `{ [examId]: { [no]: [{ id, content, savedAt }] } }` | 문제별 메모 배열 |
+| `cbt_ai_v1`        | `{ [examId]: { [no]: [{ role, content, saved? }] } }` | 문제별 AI 대화 히스토리 (시트 닫아도 유지) |
 | `cbt_last_exam_v1` | `string` (examId) | 마지막 선택 회차 (현재 미사용 — 홈에서 항상 매니페스트 노출) |
-| `cbt_settings_v1`  | (미사용 / 예약) | 향후 설정 |
+| `cbt_settings_v1`  | `{ theme?: 'light'\|'dark' }` | 야간 모드 등 앱 설정 |
 
 **중요: 답(answers)은 localStorage에 저장하지 않는다.**
 - 학습/랜덤 모드: `state.tempAnswer = {no, idx}` (현재 문제만, 이탈 시 소멸)
