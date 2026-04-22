@@ -11,18 +11,21 @@ const LS = {
   bookmarks: 'cbt_bookmarks_v1', // { [examId]: number[] }
   tags:      'cbt_tags_v2',      // { [examId]: { [no]: color } } — 6색으로 확장되어 v2
   notes:     'cbt_notes_v1',     // { [examId]: { [no]: [{id, content, savedAt}] } }
+  ai:        'cbt_ai_v2',        // { [examId]: { [no]: { lastOpenedAt: number, messages: [{role, content, saved?}] } } }
+                                  // 70분(AI_TTL_MS) 무활동 시 자동 만료 — 열람·송수신 시각을 기준으로 갱신
   lastExam:  'cbt_last_exam_v1', // string (examId)
-  settings:  'cbt_settings_v1'
+  settings:  'cbt_settings_v1'   // { theme?: 'light'|'dark' }
 };
 
-// 6색 태그 + 의미. 회색은 "지우기(미착수)" 역할도 겸함.
+// 6색 태그 + 의미. 회색은 "지우기(미완료)" 역할도 겸함.
+// green/red는 학습·랜덤 모드 답 선택 / 모의고사 제출 시 자동으로 부여됨.
 const TAG_COLORS = ['gray', 'green', 'red', 'orange', 'yellow', 'blue'];
 const TAG_MEANING = {
-  gray:   '미착수 / 지우기',
+  gray:   '미완료',
   green:  '맞춤',
   red:    '틀림',
-  orange: '학습 필요',
-  yellow: '다시 풀기',
+  orange: '복습 필요',
+  yellow: '개념 복습 필요',
   blue:   '중요'
 };
 
@@ -35,6 +38,9 @@ const EXAM_HALF_MS  =  75 * 60 * 1000;
 const PER_SUBJECT_FULL = 20;
 const PER_SUBJECT_HALF = 10;
 const TIMER_WARN_MS = 10 * 60 * 1000;
+
+// AI 대화 자동 만료: 마지막 열람·송수신으로부터 70분
+const AI_TTL_MS = 70 * 60 * 1000;
 
 const CIRCLED = ['①', '②', '③', '④', '⑤'];
 
@@ -186,8 +192,10 @@ function renderMath(root) {
   } catch (e) { /* no-op */ }
 }
 
-// 뷰 전환
-function show(view) {
+// 뷰 전환. 기본은 history에 푸시하여 Android/브라우저 뒤로가기가 이전 뷰로 복귀하게 한다.
+// popstate로 돌아온 호출은 pushState를 건너뛰기 위해 options.fromPop=true.
+function show(view, options) {
+  const prev = state.view;
   state.view = view;
   const map = {
     home:    '#home',
@@ -202,6 +210,56 @@ function show(view) {
   const loading = qs('#loading');
   if (loading) loading.classList.add('hidden');
   window.scrollTo(0, 0);
+  const fromPop = options && options.fromPop;
+  if (!fromPop && prev !== view) {
+    try { history.pushState({ view, no: state.currentNo || null }, ''); } catch {}
+  }
+}
+
+// popstate → 각 뷰에 맞게 렌더 복구. back 버튼 클릭도 history.back()을 통해 이 경로로 온다.
+function handlePopState(e) {
+  // 오버레이/시트가 열려 있으면 뷰 전환 대신 시트를 먼저 닫는다
+  const aiSheet = qs('#ai-sheet');
+  const choiceSheet = qs('#choice-sheet');
+  const settingsSheet = qs('#settings-sheet');
+  const aiOpen = aiSheet && !aiSheet.classList.contains('hidden');
+  const choiceOpen = choiceSheet && !choiceSheet.classList.contains('hidden');
+  const settingsOpen = settingsSheet && !settingsSheet.classList.contains('hidden');
+  if (aiOpen || choiceOpen || settingsOpen) {
+    if (aiOpen) closeAiSheet();
+    if (choiceOpen) closeChoiceSheet();
+    if (settingsOpen) closeSettingsSheet();
+    try { history.forward(); } catch {}
+    return;
+  }
+
+  const s = e && e.state;
+  const target = (s && s.view) || 'home';
+  if (target === state.view) return;
+
+  // 모의고사 중 detail → 다른 화면으로 나가려 할 때 확인
+  if (state.view === 'detail' && state.mode === 'exam' && target !== 'detail') {
+    if (!confirm('시험을 중단할까요? 답안이 사라집니다.')) {
+      // 취소 → 다시 detail 유지하도록 history를 앞으로 밀어 복구
+      try { history.pushState({ view: 'detail', no: state.currentNo }, ''); } catch {}
+      return;
+    }
+    stopTimer();
+    state.examAnswers = {};
+    state.examSet = [];
+  }
+
+  switch (target) {
+    case 'home':   renderHome(); show('home', { fromPop: true }); break;
+    case 'modes':  renderModes(); show('modes', { fromPop: true }); break;
+    case 'list':   renderList(); show('list', { fromPop: true }); break;
+    case 'detail':
+      if (state.currentNo != null) renderDetail(state.currentNo);
+      show('detail', { fromPop: true });
+      break;
+    case 'result': show('result', { fromPop: true }); break;
+    default:       renderHome(); show('home', { fromPop: true });
+  }
 }
 
 // 배열 셔플(Fisher-Yates)
@@ -306,13 +364,75 @@ function deleteNote(no, noteId) {
   });
 }
 
-// 진행도 초기화: 현재 회차의 북마크·태그·메모 삭제 (답은 메모리에만 있음)
+// 진행도 초기화: 현재 회차의 북마크·태그·메모·AI 대화 삭제 (답은 메모리에만 있음)
 function resetCurrentExam() {
   patchLS(LS.bookmarks, {}, all => { all[state.examId] = []; return all; });
   patchLS(LS.tags,      {}, all => { all[state.examId] = {}; return all; });
   patchLS(LS.notes,     {}, all => { all[state.examId] = {}; return all; });
+  patchLS(LS.ai,        {}, all => { all[state.examId] = {}; return all; });
   state.examAnswers = {};
   state.tempAnswer = null;
+  state.ai.messages = [];
+}
+
+// ---- AI 대화 per-문제 영속화 ----
+// 시트를 닫아도 대화가 남고, 다시 열면 복구된다.
+// 단, 마지막 열람·송수신으로부터 AI_TTL_MS(70분) 이상 지났으면 만료되어 삭제된다.
+function getAiMessages(no) {
+  const all = _scope(LS.ai, {});
+  const e = all && all[no];
+  if (!e || !Array.isArray(e.messages) || e.messages.length === 0) return [];
+  const age = Date.now() - (e.lastOpenedAt || 0);
+  if (age > AI_TTL_MS) {
+    // 만료 — 저장소에서 제거 후 빈 배열 반환
+    patchLS(LS.ai, {}, all2 => {
+      const id = state.examId;
+      const m = { ...(all2[id] || {}) };
+      delete m[no];
+      all2[id] = m;
+      return all2;
+    });
+    return [];
+  }
+  return e.messages.map(x => ({ ...x }));
+}
+function saveAiMessages(no, messages) {
+  patchLS(LS.ai, {}, all => {
+    const id = state.examId;
+    const m = { ...(all[id] || {}) };
+    const clean = (messages || [])
+      .filter(x => x && !x.loading && !x.error)
+      .map(x => ({ role: x.role, content: x.content, saved: !!x.saved }));
+    if (clean.length === 0) delete m[no];
+    else m[no] = { lastOpenedAt: Date.now(), messages: clean };
+    all[id] = m;
+    return all;
+  });
+}
+// 대화를 변경하지 않고 열람 시각만 갱신 (TTL 리셋)
+function touchAiAccess(no) {
+  patchLS(LS.ai, {}, all => {
+    const id = state.examId;
+    const m = { ...(all[id] || {}) };
+    const e = m[no];
+    if (e && Array.isArray(e.messages) && e.messages.length) {
+      m[no] = { ...e, lastOpenedAt: Date.now() };
+      all[id] = m;
+    }
+    return all;
+  });
+}
+
+// ---- 설정(테마) ----
+function getSettings() { return loadLS(LS.settings, {}) || {}; }
+function setSetting(key, value) {
+  patchLS(LS.settings, {}, cur => { cur[key] = value; return cur; });
+}
+function applyTheme(theme) {
+  const t = (theme === 'dark') ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', t);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', t === 'dark' ? '#17191c' : '#ffffff');
 }
 
 // ---- 답(메모리) ----
@@ -501,7 +621,12 @@ function renderQuestionCard(q, bookmarks, tags) {
   const kids = [];
   if (bookmarks.has(q.no)) kids.push(el('span', { class: 'bookmark-on', title: '북마크' }, '★'));
   const color = tags[q.no];
-  if (color) kids.push(el('span', { class: 'tag-dot dot ' + color }));
+  if (color) {
+    kids.push(el('span', {
+      class: 'q-tag-label ' + color,
+      title: TAG_MEANING[color]
+    }, TAG_MEANING[color]));
+  }
 
   return el('button', {
     class: 'q-card',
@@ -511,9 +636,7 @@ function renderQuestionCard(q, bookmarks, tags) {
     el('div', { class: 'q-main' }, [
       el('div', { class: 'q-preview' }, preview(q.q, 80)),
       el('div', { class: 'q-sub' }, [
-        el('span', { class: 'subject-badge' }, subjectNameOf(q)),
-        q.has_image ? el('span', null, '📷') : null,
-        q.has_formula ? el('span', null, '∑') : null
+        el('span', { class: 'subject-badge' }, subjectNameOf(q))
       ])
     ]),
     el('div', { class: 'q-right' }, kids)
@@ -635,11 +758,17 @@ function renderDetail(no) {
     answerBox.textContent = '';
   }
 
-  // 헤더 태그 트리거(현재 색 인디케이터)
+  // 상세 메타줄 인라인 태그 버튼 갱신
   const trigger = qs('#tag-trigger-dot');
-  if (trigger) {
-    const curTag = getTag(q.no);
-    trigger.className = 'tag-trigger-dot ' + (curTag || 'gray');
+  const labelEl = qs('#tag-trigger-label');
+  const btnTag  = qs('#btn-tag');
+  const curTag = getTag(q.no);
+  if (trigger) trigger.className = 'tag-inline-dot ' + (curTag || 'gray');
+  if (labelEl) labelEl.textContent = curTag ? TAG_MEANING[curTag] : '미완료';
+  if (btnTag) {
+    btnTag.classList.toggle('has-tag', !!curTag);
+    ['green','red','orange','yellow','blue','gray'].forEach(c => btnTag.classList.remove(c));
+    if (curTag) btnTag.classList.add(curTag);
   }
 
   // 메모 섹션
@@ -648,7 +777,7 @@ function renderDetail(no) {
   // prev/next 기준 번호 목록 결정
   let navList = state.filteredNos;
   if (state.mode === 'exam') navList = state.examSet;
-  if (state.mode === 'random') navList = [no]; // 랜덤은 "다음"이 새 랜덤 → prev 비활성
+  if (state.mode === 'random') navList = state.randomSeen; // 이력 기반 prev/next
   if (!navList.length) navList = state.exam.questions.map(x => x.no);
   state.filteredNos = navList;
 
@@ -656,11 +785,12 @@ function renderDetail(no) {
   const prevBtn = qs('#btn-prev');
   const nextBtn = qs('#btn-next');
 
-  // 랜덤 학습: prev 비활성, next는 "다음 랜덤"
+  // 랜덤 학습: prev는 이력상 이전 문제로, next는 이력 끝이면 새 랜덤 픽
   if (state.mode === 'random') {
-    prevBtn.disabled = true;
+    prevBtn.disabled = pos <= 0;
     nextBtn.disabled = false;
-    nextBtn.textContent = '다음 랜덤 →';
+    const atEnd = pos === navList.length - 1;
+    nextBtn.textContent = atEnd ? '다음 랜덤 →' : '다음 →';
     nextBtn.classList.remove('submit');
   } else if (state.mode === 'exam') {
     prevBtn.disabled = pos <= 0;
@@ -674,6 +804,30 @@ function renderDetail(no) {
     nextBtn.textContent = '다음 →';
     nextBtn.classList.remove('submit');
   }
+
+  // 모의고사 진행도 바 (답한 문제/미답)
+  renderExamProgressBar();
+}
+
+// 모의고사 진행바: 상세 상단 sticky. 모의고사 모드에서만 표시.
+function renderExamProgressBar() {
+  const scroll = qs('.detail-scroll');
+  if (!scroll) return;
+  let bar = qs('#exam-progress-bar');
+  if (state.mode !== 'exam' || !state.examSet.length) {
+    if (bar) bar.remove();
+    return;
+  }
+  const total = state.examSet.length;
+  const answered = state.examSet.filter(n => state.examAnswers[n] != null).length;
+  const remain = total - answered;
+  if (!bar) {
+    bar = el('div', { id: 'exam-progress-bar', class: 'exam-progress-bar' });
+    scroll.prepend(bar);
+  }
+  bar.innerHTML = '';
+  bar.appendChild(el('span', null, `답한 문제 ${answered} / ${total}`));
+  bar.appendChild(el('span', { class: remain ? 'unanswered' : '' }, `미답 ${remain}`));
 }
 
 function renderNotesList(no) {
@@ -753,11 +907,12 @@ function openTagPopover() {
       el('span', { class: 'meaning' }, TAG_MEANING[c])
     ]));
   });
-  // 위치(버튼 아래 정렬)
+  // 위치(버튼 기준 아래 정렬, 화면 우측 밖으로 벗어나지 않게 좌표 보정)
   const r = btn.getBoundingClientRect();
+  const pw = 200; // 근사 폭
   pop.style.top = (r.bottom + 8) + 'px';
-  pop.style.right = (window.innerWidth - r.right) + 'px';
-  pop.style.left = '';
+  pop.style.left = Math.max(8, Math.min(window.innerWidth - pw - 8, r.left)) + 'px';
+  pop.style.right = '';
   pop.classList.remove('hidden');
   // 외부 클릭 닫기
   setTimeout(() => document.addEventListener('click', closeTagPopoverOnOutside, { once: true, capture: true }), 0);
@@ -942,7 +1097,11 @@ function startExam(variant) {
 function submitExam() {
   const total = state.examSet.length;
   const answered = state.examSet.filter(no => state.examAnswers[no] != null).length;
-  if (answered < total && !confirm(`진행한 문제 ${answered} / ${total}. 제출할까요?`)) return;
+  const remain = total - answered;
+  const msg = remain > 0
+    ? `아직 풀지 않은 문제가 ${remain}개 있어요.\n답한 문제 ${answered} / ${total}\n지금 제출할까요?`
+    : `모든 문제에 답했습니다 (${answered} / ${total}).\n제출할까요?`;
+  if (!confirm(msg)) return;
   stopTimer();
   // 제출 시점에 정답/오답 자동 태그 일괄 적용
   state.examSet.forEach(no => {
@@ -996,10 +1155,24 @@ function pickRandomFromSubject() {
 }
 
 function nextRandom() {
-  state.tempAnswer = null; // 이전 문제 답 소멸
+  // 이력 중간에서 next를 누르면 이력상 다음 문제로, 끝에 있으면 새 랜덤 픽
+  const i = state.randomSeen.indexOf(state.currentNo);
+  state.tempAnswer = null;
+  if (i !== -1 && i < state.randomSeen.length - 1) {
+    renderDetail(state.randomSeen[i + 1]);
+    return;
+  }
   const n = pickRandomFromSubject();
   if (n == null) return;
   renderDetail(n);
+}
+
+function prevRandom() {
+  const i = state.randomSeen.indexOf(state.currentNo);
+  if (i > 0) {
+    state.tempAnswer = null;
+    renderDetail(state.randomSeen[i - 1]);
+  }
 }
 
 // ---- 학습 모드 상세 진입/이탈 ----
@@ -1012,22 +1185,11 @@ function openDetail(no) {
   show('detail');
 }
 
+// detail에서 뒤로 가는 공통 동작. 이제는 history.back()에 위임한다 (popstate 핸들러가 처리).
+// 학습 모드의 tempAnswer 정리만 여기서 수행.
 function leaveDetailBack() {
-  // 학습/랜덤: 답 흔적 소멸
   clearTempAnswerIfLeaving(state.currentNo);
-  if (state.mode === 'random' || state.mode === 'exam') {
-    // 모의고사/랜덤에서 "뒤로"는 시험 중단 경고
-    if (state.mode === 'exam') {
-      if (!confirm('시험을 중단할까요? 답안이 사라집니다.')) return;
-      stopTimer();
-      state.examAnswers = {};
-      state.examSet = [];
-    }
-    show('modes');
-    return;
-  }
-  show('list');
-  renderList();
+  history.back();
 }
 
 // ---- 타이머 ----
@@ -1122,7 +1284,13 @@ function currentCard() {
 }
 
 function openAiSheet() {
-  state.ai.messages = [];
+  // 문제별로 대화를 보존한다. 현재 문제의 저장된 대화 로드.
+  // getAiMessages 내부에서 TTL 만료 시 자동 삭제된다.
+  const no = state.currentNo;
+  state.ai.messages = no != null ? getAiMessages(no).map(m => ({ ...m })) : [];
+  // 대화가 남아 있으면 열람 시각을 갱신해 TTL 리셋
+  if (no != null && state.ai.messages.length) touchAiAccess(no);
+  state.ai.contextExpanded = true;
   renderAiSheet();
   qs('#ai-overlay').classList.remove('hidden');
   qs('#ai-sheet').classList.remove('hidden');
@@ -1136,6 +1304,8 @@ function openAiSheet() {
 function closeAiSheet() {
   const sheet = qs('#ai-sheet');
   const overlay = qs('#ai-overlay');
+  // 대화 내용을 닫기 직전에 저장
+  if (state.currentNo != null) saveAiMessages(state.currentNo, state.ai.messages);
   sheet.classList.remove('show');
   overlay.classList.remove('show');
   sheet.style.transform = '';
@@ -1150,9 +1320,31 @@ function renderAiSheet() {
   const card = currentCard();
   const ctx = qs('#sheet-context');
   ctx.innerHTML = '';
+  ctx.classList.remove('collapsed');
   if (card) {
-    ctx.appendChild(el('strong', null, `문제 ${card.no} · ${card.subject}${card.has_image ? ' · 🖼 이미지 포함' : ''}`));
-    ctx.appendChild(el('div', null, preview(card.q, 160)));
+    const expanded = state.ai.contextExpanded !== false;
+    if (!expanded) ctx.classList.add('collapsed');
+
+    const head = el('div', { class: 'sheet-context-title' }, [
+      el('span', null, `문제 ${card.no} · ${card.subject}`),
+      el('button', { class: 'sheet-context-toggle', dataset: { action: 'toggle-ctx' } },
+         expanded ? '접기' : '펼치기')
+    ]);
+    ctx.appendChild(head);
+
+    const bodyText = el('div', { class: 'sheet-context-body' }, card.q);
+    ctx.appendChild(bodyText);
+    renderMath(bodyText);
+
+    // 본문 이미지 (있을 때만 표시)
+    const img = new Image();
+    img.className = 'sheet-context-img';
+    img.alt = '문제 이미지';
+    img.style.display = 'none';
+    img.onload = () => { img.style.display = ''; };
+    img.onerror = () => { img.remove(); };
+    img.src = `images/${state.examId}/${card.no}.png`;
+    ctx.appendChild(img);
   }
 
   const body = qs('#sheet-messages');
@@ -1161,9 +1353,9 @@ function renderAiSheet() {
   if (state.ai.messages.length === 0) {
     const sugWrap = el('div', { class: 'suggestions' });
     const suggestions = [
-      '이 문제의 핵심 개념을 설명해줘',
+      '이 문제의 핵심 개념을 한 문단으로 알려줘',
       card ? `왜 정답이 ${card.a}번인지 간단히 알려줘` : '정답 이유를 간단히 알려줘',
-      '이 주제에서 자주 틀리는 함정은 뭐야?'
+      '자주 틀리는 함정을 한 줄로 알려줘'
     ];
     suggestions.forEach(s => {
       sugWrap.appendChild(el('button', {
@@ -1180,13 +1372,12 @@ function renderAiSheet() {
     const msgEl = el('div', { class: cls });
     if (m.role === 'ai' && !m.loading && !m.error) {
       msgEl.innerHTML = renderMarkdownInline(m.content);
-      // 저장 버튼
-      const actions = el('div', { class: 'msg-actions' }, [
-        el('button', {
-          class: 'msg-save-btn',
-          dataset: { action: 'save-note', idx: String(idx) }
-        }, m.saved ? '✓ 저장됨' : '📝 메모에 저장')
-      ]);
+      // 저장 버튼 — 아웃라인 primary 로 가시성 강화
+      const saveBtn = el('button', {
+        class: 'msg-save-btn' + (m.saved ? ' saved' : ''),
+        dataset: { action: 'save-note', idx: String(idx) }
+      }, m.saved ? '✓ 메모에 저장됨' : '📝 메모에 저장');
+      const actions = el('div', { class: 'msg-actions' }, [saveBtn]);
       msgEl.appendChild(actions);
       body.appendChild(msgEl);
       renderMath(msgEl);
@@ -1195,7 +1386,17 @@ function renderAiSheet() {
       body.appendChild(msgEl);
     }
   });
-  body.scrollTop = body.scrollHeight;
+}
+
+// 마지막 AI 답변의 시작 지점으로 스크롤한다. (끝으로 내려버리지 않도록)
+function scrollToLatestAiAnswer() {
+  const body = qs('#sheet-messages');
+  if (!body) return;
+  const aiMsgs = body.querySelectorAll('.msg.ai');
+  const last = aiMsgs[aiMsgs.length - 1];
+  if (!last) return;
+  const top = last.offsetTop - 8;
+  body.scrollTo({ top, behavior: 'smooth' });
 }
 
 // 이미지 한 장을 base64로 읽어온다. 404/에러면 null.
@@ -1269,6 +1470,10 @@ async function sendAiMessage(text) {
     state.ai.messages.push({ role: 'ai', content: '네트워크 오류: ' + (err.message || err), error: true });
   }
   renderAiSheet();
+  // 답변을 끝까지 내리지 않고, 답변의 시작이 보이게 스크롤
+  requestAnimationFrame(() => scrollToLatestAiAnswer());
+  // 즉시 저장 — 시트를 닫지 않아도 대화 유실 없음
+  if (state.currentNo != null) saveAiMessages(state.currentNo, state.ai.messages);
 }
 
 // AI 답변을 현재 문제의 메모에 저장
@@ -1356,6 +1561,19 @@ function bindEvents() {
     if (state.view === 'list') renderList();
   });
 
+  // 야간 모드 토글
+  const themeBtn = qs('#btn-toggle-theme');
+  if (themeBtn) {
+    themeBtn.addEventListener('click', () => {
+      const cur = document.documentElement.getAttribute('data-theme') === 'dark';
+      const next = cur ? 'light' : 'dark';
+      applyTheme(next);
+      setSetting('theme', next);
+      const sw = qs('#theme-toggle');
+      if (sw) sw.setAttribute('aria-checked', next === 'dark' ? 'true' : 'false');
+    });
+  }
+
   // 홈: 회차 선택
   qs('#home').addEventListener('click', async e => {
     const btn = e.target.closest('[data-action="pick-exam"]');
@@ -1372,7 +1590,7 @@ function bindEvents() {
   });
 
   // 모드 뷰
-  qs('#modes-back').addEventListener('click', () => { renderHome(); show('home'); });
+  qs('#modes-back').addEventListener('click', () => history.back());
   qs('#modes-view').addEventListener('click', e => {
     const card = e.target.closest('.mode-card');
     if (!card) return;
@@ -1380,7 +1598,7 @@ function bindEvents() {
   });
 
   // 리스트 뷰
-  qs('#list-back').addEventListener('click', () => { renderModes(); show('modes'); });
+  qs('#list-back').addEventListener('click', () => history.back());
   qs('#list-view').addEventListener('click', e => {
     const tab = e.target.closest('[data-action="subject-tab"]');
     if (tab) { state.subjectFilter = tab.dataset.name; renderList(); return; }
@@ -1403,7 +1621,7 @@ function bindEvents() {
   // 상세 뷰
   qs('#detail-back').addEventListener('click', leaveDetailBack);
   qs('#btn-prev').addEventListener('click', () => {
-    if (state.mode === 'random') return;
+    if (state.mode === 'random') { prevRandom(); return; }
     const list = state.filteredNos;
     const i = list.indexOf(state.currentNo);
     if (i > 0) {
@@ -1467,7 +1685,7 @@ function bindEvents() {
   });
 
   // 결과 뷰
-  qs('#result-back').addEventListener('click', () => { renderModes(); show('modes'); });
+  qs('#result-back').addEventListener('click', () => history.back());
   qs('#result-view').addEventListener('click', e => {
     if (e.target.closest('[data-action="back-home"]')) { renderHome(); show('home'); }
   });
@@ -1478,10 +1696,9 @@ function bindEvents() {
   qs('#sheet-messages').addEventListener('click', e => {
     const sug = e.target.closest('[data-action="suggest"]');
     if (sug) {
-      const ta = qs('#sheet-textarea');
-      ta.value = sug.textContent;
-      ta.focus();
-      autoResizeTextarea(ta);
+      // 추천 질문은 클릭 즉시 전송
+      const text = sug.textContent;
+      sendAiMessage(text);
       return;
     }
     const save = e.target.closest('[data-action="save-note"]');
@@ -1489,6 +1706,13 @@ function bindEvents() {
       saveAiMessageAsNote(parseInt(save.dataset.idx, 10));
       return;
     }
+  });
+  // 컨텍스트(문제) 펼치기/접기
+  qs('#sheet-context').addEventListener('click', e => {
+    const t = e.target.closest('[data-action="toggle-ctx"]');
+    if (!t) return;
+    state.ai.contextExpanded = !(state.ai.contextExpanded !== false);
+    renderAiSheet();
   });
   qs('#sheet-form').addEventListener('submit', e => {
     e.preventDefault();
@@ -1510,11 +1734,23 @@ function bindEvents() {
 
 // ---------- 부트스트랩 ----------
 async function bootstrap() {
+  // 저장된 테마(야간 모드) 적용 + 토글 초기 상태
+  try {
+    const s = getSettings();
+    const theme = s.theme === 'dark' ? 'dark' : 'light';
+    applyTheme(theme);
+    const sw = qs('#theme-toggle');
+    if (sw) sw.setAttribute('aria-checked', theme === 'dark' ? 'true' : 'false');
+  } catch {}
+
   try {
     await loadManifest();
     bindEvents();
     renderHome();
     show('home');
+    // history 초기화: 첫 엔트리를 home으로 교체 + popstate 리스너
+    try { history.replaceState({ view: 'home' }, ''); } catch {}
+    window.addEventListener('popstate', handlePopState);
   } catch (err) {
     console.error(err);
     const loading = qs('#loading');

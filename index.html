@@ -90,9 +90,6 @@
         <div class="header-title" id="detail-title">문제 1</div>
         <div class="header-right">
           <span id="detail-timer" class="hidden"></span>
-          <button class="icon-btn tag-trigger" id="btn-tag" aria-label="태그">
-            <span class="tag-trigger-dot" id="tag-trigger-dot"></span>
-          </button>
           <button class="icon-btn" id="btn-bookmark" aria-label="북마크">☆</button>
         </div>
       </header>
@@ -100,6 +97,10 @@
         <div class="detail-meta">
           <span class="subject-badge" id="detail-subject"></span>
           <span class="q-no" id="detail-no"></span>
+          <button class="tag-inline" id="btn-tag" aria-label="태그 변경">
+            <span class="tag-inline-dot" id="tag-trigger-dot"></span>
+            <span class="tag-inline-label" id="tag-trigger-label">미완료</span>
+          </button>
           <span class="q-progress" id="detail-progress"></span>
         </div>
         <div class="q-body" id="detail-question"></div>
@@ -174,11 +175,20 @@
       <button class="icon-btn" id="settings-close" aria-label="닫기">✕</button>
     </header>
     <div class="settings-list">
+      <button class="settings-item" id="btn-toggle-theme">
+        <div class="settings-item-head">
+          <div>
+            <div class="settings-item-title">야간 모드</div>
+            <div class="settings-item-desc">어두운 배경으로 전환</div>
+          </div>
+          <span class="toggle" id="theme-toggle" role="switch" aria-checked="false"><span class="toggle-dot"></span></span>
+        </div>
+      </button>
       <button class="settings-item danger" id="btn-reset">
         <div class="settings-item-title">진행도 초기화</div>
         <div class="settings-item-desc">이 회차의 답안·북마크·태그·메모를 모두 삭제합니다</div>
       </button>
-      <div class="settings-version">v1.05</div>
+      <div class="settings-version">v1.10</div>
     </div>
   </div>
 
