@@ -584,14 +584,19 @@ function renderList() {
     const mk = (key, label, dotClass) => {
       const active = state.tagFilter === key;
       const kids = [];
-      if (dotClass) kids.push(el('span', { class: 'dot ' + dotClass }));
-      kids.push(document.createTextNode(label));
+      if (key === 'bookmark') {
+        kids.push(el('span', { class: 'chip-bookmark-star' }, '★'));
+        kids.push(document.createTextNode(' ' + label));
+      } else {
+        if (dotClass) kids.push(el('span', { class: 'dot ' + dotClass }));
+        kids.push(document.createTextNode(label));
+      }
       return el('button', {
         class: 'filter-chip' + (active ? ' active' : ''),
         dataset: { action: 'tag-filter', key }
       }, kids);
     };
-    chips.appendChild(mk('bookmark', '★ 북마크'));
+    chips.appendChild(mk('bookmark', '북마크'));
     TAG_COLORS.filter(c => c !== 'gray').forEach(c => {
       chips.appendChild(mk(c, TAG_MEANING[c], c));
     });
@@ -618,11 +623,13 @@ function renderList() {
 }
 
 function renderQuestionCard(q, bookmarks, tags) {
-  const kids = [];
-  if (bookmarks.has(q.no)) kids.push(el('span', { class: 'bookmark-on', title: '북마크' }, '★'));
+  const rightKids = [];
+  if (bookmarks.has(q.no)) rightKids.push(el('span', { class: 'bookmark-on', title: '북마크' }, '★'));
   const color = tags[q.no];
+  // 태그 라벨은 과목 배지 오른쪽 옆에 나란히 배치한다.
+  const subKids = [el('span', { class: 'subject-badge' }, subjectNameOf(q))];
   if (color) {
-    kids.push(el('span', {
+    subKids.push(el('span', {
       class: 'q-tag-label ' + color,
       title: TAG_MEANING[color]
     }, TAG_MEANING[color]));
@@ -635,11 +642,9 @@ function renderQuestionCard(q, bookmarks, tags) {
     el('div', { class: 'q-left' }, String(q.no)),
     el('div', { class: 'q-main' }, [
       el('div', { class: 'q-preview' }, preview(q.q, 80)),
-      el('div', { class: 'q-sub' }, [
-        el('span', { class: 'subject-badge' }, subjectNameOf(q))
-      ])
+      el('div', { class: 'q-sub' }, subKids)
     ]),
-    el('div', { class: 'q-right' }, kids)
+    el('div', { class: 'q-right' }, rightKids)
   ]);
 }
 
