@@ -1,5 +1,14 @@
 # Updates
 
+## v1.15 — 2026-05-02
+- **AI 모델 롤백**: primary `gemini-2.5-flash` → `models/gemini-3-flash-preview`. 폴백은 `gemini-2.0-flash` 유지.
+- **AI 호출 로그 시스템 추가**:
+  - 서버(`api/ask.js`)가 응답 본문에 `model` / `fallbackUsed` / `primaryError` / `latencyMs` 진단 정보를 함께 반환.
+  - 클라이언트는 `cbt_ai_log_v1`(LS, 최근 200건)에 호출 1회당 1엔트리 적재 — 회차/문제 번호/질문 미리보기/이미지 개수/모델/폴백 여부/지연시간/성공·실패·에러.
+  - 설정 시트(홈·모드 화면 ⚙)에 "AI 호출 로그" 메뉴 추가 → 바텀시트로 시각화. 폴백·실패 항목은 좌측 컬러 바로 즉시 식별.
+  - "기록 모두 삭제" 액션 + 안드로이드 시스템 백 버튼으로 시트 닫기 지원.
+- 설정 시트 버전 라벨 v1.12 → v1.15.
+
 ## v1.14 — 2026-05-02
 - **AI 모델 변경**: `MODEL_PRIMARY` `models/gemini-3-flash-preview` → `gemini-2.5-flash` (정식 stable 라인). 폴백도 `gemini-1.5-flash`(폐기 임박) → `gemini-2.0-flash`로 동시 이동해 폴백 자체가 죽을 위험 제거.
 - 코드 변경 위치: `api/ask.js` 13~14행. `docs/AI-INTEGRATION.md` §2 동기화.

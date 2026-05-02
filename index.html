@@ -184,11 +184,30 @@
           <span class="toggle" id="theme-toggle" role="switch" aria-checked="false"><span class="toggle-dot"></span></span>
         </div>
       </button>
+      <button class="settings-item" id="btn-open-log">
+        <div class="settings-item-title">AI 호출 로그</div>
+        <div class="settings-item-desc">최근 AI 호출의 모델·응답시간·성공 여부를 확인</div>
+      </button>
       <button class="settings-item danger" id="btn-reset">
         <div class="settings-item-title">진행도 초기화</div>
         <div class="settings-item-desc">이 회차의 답안·북마크·태그·메모를 모두 삭제합니다</div>
       </button>
-      <div class="settings-version">v1.12</div>
+      <div class="settings-version">v1.15</div>
+    </div>
+  </div>
+
+  <!-- AI 호출 로그 바텀시트 -->
+  <div id="log-overlay" class="overlay hidden" aria-hidden="true"></div>
+  <div id="log-sheet" class="sheet hidden" role="dialog" aria-modal="true" aria-label="AI 호출 로그">
+    <div class="sheet-handle"><span></span></div>
+    <header class="sheet-header">
+      <div class="sheet-title">AI 호출 로그</div>
+      <button class="icon-btn" id="log-close" aria-label="닫기">✕</button>
+    </header>
+    <div class="log-meta" id="log-meta"></div>
+    <div class="log-list" id="log-list"></div>
+    <div class="log-actions">
+      <button class="ghost-btn" id="btn-log-clear">기록 모두 삭제</button>
     </div>
   </div>
 
