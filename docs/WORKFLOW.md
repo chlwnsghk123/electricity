@@ -58,10 +58,13 @@ LaTeX 변환은 `node tools/latexify.cjs`. 현재 스크립트는 경로가 하�
 
 ## 6. AI 동작 조정
 
-- 시스템 프롬프트: `api/ask.js` `SYSTEM_PROMPT`
+- 시스템 프롬프트: `api/ask.js` `SYSTEM_PROMPT` (모바일용 간결 답변 강제 규칙 포함)
 - 모델 변경: `MODEL_PRIMARY` / `MODEL_FALLBACK`
-- 추천 질문: `app.js` `renderAiSheet()` 안의 suggestions 배열
-- 멀티모달 첨부 정책: `fetchQuestionImages()`
+- 추천 질문 텍스트: `app.js` `renderAiSheet()` 안의 `suggestions` 배열. 클릭 핸들러는 `bindEvents()`의 `[data-action="suggest"]` 분기 — **클릭 즉시 `sendAiMessage(text)` 호출**(입력창 채움 동작은 의도적으로 제거).
+- 답변 도착 후 스크롤: `scrollToLatestAiAnswer()`. 정책 변경 시 여기 수정.
+- TTL: `AI_TTL_MS`(상수, Part 1). 만료 판정은 `getAiMessages(no)` 내부에서 lazy.
+- 컨텍스트 펼치기 기본 상태: `openAiSheet()`에서 `state.ai.contextExpanded = true`.
+- 멀티모달 첨부 정책: `fetchQuestionImages()` — 본문 + 선택지 이미지 자동 수집.
 
 ## 7. 자주 쓰는 명령
 
