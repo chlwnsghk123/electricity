@@ -24,7 +24,9 @@
   - 태그:   `getTags()` / `getTag(no)` / `setTag(no, color)` (gray 또는 같은 색 재선택 → 해제)
   - 메모:   `getNotes(no)` / `addNote(no, content)` / `deleteNote(no, id)`
   - 답:     `getCurrentAnswer(no)` / `setCurrentAnswer(no, idx)` / `clearTempAnswerIfLeaving(no)`
-- 초기화: `resetCurrentExam()` — 현재 회차의 북마크/태그/메모 + 메모리 답 모두 삭제
+  - AI 대화: `getAiMessages(no)` (TTL 만료 시 lazy 삭제 후 빈 배열) / `saveAiMessages(no, messages)` / `touchAiAccess(no)` (열람 시각만 갱신)
+  - 테마: `getSettings()` / `setSetting(key, value)` / `applyTheme('light'|'dark')`
+- 초기화: `resetCurrentExam()` — 현재 회차의 북마크/태그/메모/AI 대화 + 메모리 답 모두 삭제 (테마는 유지)
 
 ## 3. 자동 태그 정책 (학습/랜덤 모드)
 
@@ -51,12 +53,17 @@ const state = {
   currentNo, filteredNos,                  // 상세 prev/next
   examSet, examAnswers,                    // 모의고사 전용
   tempAnswer,                              // 학습/랜덤 단일 답 임시 보관
-  randomSeen,                              // 랜덤 학습 중복 회피 풀
+  randomSeen,                              // 랜덤 학습 이력(중복 회피 + prev/next 기반)
   timer: { startedAt, limitMs, intervalId, running },
-  ai: { messages: [{role:'user'|'ai', content, loading?, error?, saved?}] },
+  ai: {
+    messages: [{role:'user'|'ai', content, loading?, error?, saved?}],
+    contextExpanded: boolean              // AI 시트의 문제 컨텍스트 펼침 상태
+  },
   subjectNames, subjectBy                  // loadExam 시 채워짐
 };
 ```
+
+`state.ai.messages`는 AI 시트가 닫힐 때 `saveAiMessages(currentNo, ...)`로 LS에 직렬화되며, 시트를 다시 열면 `getAiMessages(no)`로 복원된다. TTL(70분) 만료 시 자동 삭제.
 
 ## 6. 스키마 마이그레이션
 
