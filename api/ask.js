@@ -10,8 +10,8 @@
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-const MODEL_PRIMARY  = 'models/gemini-3-flash-preview';
-const MODEL_FALLBACK = 'gemini-1.5-flash';
+const MODEL_PRIMARY  = 'gemini-2.5-flash';
+const MODEL_FALLBACK = 'gemini-2.0-flash';
 
 const SYSTEM_PROMPT = `너는 전기기사/전기공사기사 필기시험 전문 강사다. 모바일 화면에서 빠르게 읽을 수 있도록 아주 간결하게 한국어로 답해라.
 

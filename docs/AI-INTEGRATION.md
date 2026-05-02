@@ -8,8 +8,8 @@
 ## 2. 모델
 
 ```js
-const MODEL_PRIMARY  = 'models/gemini-3-flash-preview';
-const MODEL_FALLBACK = 'gemini-1.5-flash';
+const MODEL_PRIMARY  = 'gemini-2.5-flash';
+const MODEL_FALLBACK = 'gemini-2.0-flash';
 ```
 
 primary가 4xx/5xx로 실패하면 fallback으로 자동 재시도.

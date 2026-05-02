@@ -1,5 +1,9 @@
 # Updates
 
+## v1.14 — 2026-05-02
+- **AI 모델 변경**: `MODEL_PRIMARY` `models/gemini-3-flash-preview` → `gemini-2.5-flash` (정식 stable 라인). 폴백도 `gemini-1.5-flash`(폐기 임박) → `gemini-2.0-flash`로 동시 이동해 폴백 자체가 죽을 위험 제거.
+- 코드 변경 위치: `api/ask.js` 13~14행. `docs/AI-INTEGRATION.md` §2 동기화.
+
 ## v1.13 — 2026-04-22
 - **docs 동기화**: 코드 현재 상태와 문서 불일치를 일괄 정리. ARCHITECTURE의 Part 라인 번호·라인 수·history(popstate) 정책, STORAGE의 AI/테마 헬퍼 + state.ai.contextExpanded, UI-MODES의 헤더 다이어그램(태그 칩이 메타줄로 이동) + 랜덤 모드 prev 활성화(이력 기반) + sticky 진행도 바 + 6색 의미·표기색 + 다크 토큰, AI-INTEGRATION의 시스템 프롬프트 갱신본 + 추천 질문 즉시 전송 + 70분 TTL + 컨텍스트 패널 + 답변 시작 스크롤, WORKFLOW의 AI 조정 가이드 보강.
 - `index.html` 설정 시트 버전 라벨 v1.10 → v1.12.
