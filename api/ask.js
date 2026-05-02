@@ -10,7 +10,7 @@
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-const MODEL_PRIMARY  = 'gemini-2.5-flash';
+const MODEL_PRIMARY  = 'models/gemini-3-flash-preview';
 const MODEL_FALLBACK = 'gemini-2.0-flash';
 
 const SYSTEM_PROMPT = `너는 전기기사/전기공사기사 필기시험 전문 강사다. 모바일 화면에서 빠르게 읽을 수 있도록 아주 간결하게 한국어로 답해라.
@@ -105,21 +105,38 @@ export default async function handler(req, res) {
     return;
   }
 
+  // 진단 정보: 어떤 모델이 실제로 응답했는지 / 폴백 사용 여부 / primary 실패 사유 / 지연시간
+  const startedAt = Date.now();
+  let usedModel    = MODEL_PRIMARY;
+  let fallbackUsed = false;
+  let primaryError = null;
+
   try {
     let answer = '';
     try {
       answer = await generate(MODEL_PRIMARY, apiKey, card, question, history, images);
     } catch (err) {
-      console.warn('primary model failed, fallback:', err?.message || err);
+      primaryError = (err && err.message) || String(err);
+      console.warn('primary model failed, fallback:', primaryError);
+      usedModel = MODEL_FALLBACK;
+      fallbackUsed = true;
       answer = await generate(MODEL_FALLBACK, apiKey, card, question, history, images);
     }
+    const latencyMs = Date.now() - startedAt;
     if (!answer) {
-      res.status(502).json({ error: '모델이 빈 응답을 반환했습니다' });
+      res.status(502).json({
+        error: '모델이 빈 응답을 반환했습니다',
+        model: usedModel, fallbackUsed, primaryError, latencyMs
+      });
       return;
     }
-    res.status(200).json({ answer });
+    res.status(200).json({ answer, model: usedModel, fallbackUsed, primaryError, latencyMs });
   } catch (err) {
     console.error('ask handler error:', err);
-    res.status(500).json({ error: 'AI 호출 실패: ' + (err?.message || '알 수 없는 오류') });
+    res.status(500).json({
+      error: 'AI 호출 실패: ' + ((err && err.message) || '알 수 없는 오류'),
+      model: usedModel, fallbackUsed, primaryError,
+      latencyMs: Date.now() - startedAt
+    });
   }
 }

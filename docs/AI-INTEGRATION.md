@@ -8,7 +8,7 @@
 ## 2. 모델
 
 ```js
-const MODEL_PRIMARY  = 'gemini-2.5-flash';
+const MODEL_PRIMARY  = 'models/gemini-3-flash-preview';
 const MODEL_FALLBACK = 'gemini-2.0-flash';
 ```
 
@@ -19,6 +19,8 @@ primary가 4xx/5xx로 실패하면 fallback으로 자동 재시도.
 `process.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY`
 
 기존 Vite 프로젝트에서 옮겨와 두 이름을 모두 읽는다. Vercel 대시보드에 둘 중 하나만 설정해두면 된다.
+
+서버는 어떤 모델이 실제 응답했는지·폴백 사용 여부·primary 실패 사유·지연시간을 응답 본문에 같이 실어 보낸다(§4 참고). 클라이언트는 이 필드를 받아 `cbt_ai_log_v1`(LS)에 한 줄씩 적재한다.
 
 ## 4. 요청 / 응답
 
@@ -42,10 +44,16 @@ primary가 4xx/5xx로 실패하면 fallback으로 자동 재시도.
 }
 
 // 200 OK
-{ "answer": "..." }
+{
+  "answer": "...",
+  "model": "models/gemini-3-flash-preview", // 실제 응답한 모델
+  "fallbackUsed": false,                    // primary 실패로 폴백을 썼는지
+  "primaryError": null,                     // 폴백 사용 시 primary 실패 사유
+  "latencyMs": 842                          // 서버 측 측정 지연시간
+}
 
 // 4xx/5xx
-{ "error": "..." }
+{ "error": "...", "model": "...", "fallbackUsed": ..., "primaryError": ..., "latencyMs": ... }
 ```
 
 ## 5. 시스템 프롬프트 (요약 — 실제 문구는 `api/ask.js` `SYSTEM_PROMPT`)
@@ -90,7 +98,15 @@ primary가 4xx/5xx로 실패하면 fallback으로 자동 재시도.
 - 모델 빈 응답: 502
 - 네트워크 실패: 클라이언트 토스트 + 에러 메시지 출력
 
-## 9. 비용 / 호출 정책
+## 9. AI 호출 로그
+
+- LS 키: `cbt_ai_log_v1`. 최근 `AI_LOG_MAX`(=200) 건만 유지.
+- 적재 시점: `sendAiMessage()` 호출 1회당 1엔트리. 성공/실패 모두 기록.
+- 스키마: `{ ts, examId, no, question, imageCount, model, fallbackUsed, primaryError, latencyMs, success, error }`.
+- 확인 방법: 홈/모드 화면 우상단 ⚙ → 설정 시트 → "AI 호출 로그" → 바텀시트로 표시 (성공·폴백·실패 표시 + 모델명 + 응답시간).
+- "기록 모두 삭제" 버튼으로 전체 비움.
+
+## 10. 비용 / 호출 정책
 
 - 클라에서 캐싱 없음. 매 전송마다 전체 history 동봉 (Gemini chat).
 - 멀티모달 1장당 base64 ~수백 KB. 한 문제에 본문 + 선택지 4장이면 ~1MB 내외.

@@ -8,6 +8,7 @@
 | `cbt_tags_v2`      | `{ [examId]: { [no]: 'gray'\|'green'\|'red'\|'orange'\|'yellow'\|'blue' } }` | 6색 태그 |
 | `cbt_notes_v1`     | `{ [examId]: { [no]: [{ id, content, savedAt }] } }` | 문제별 메모 배열 |
 | `cbt_ai_v2`        | `{ [examId]: { [no]: { lastOpenedAt: number, messages: [{ role, content, saved? }] } } }` | 문제별 AI 대화 히스토리 (시트 닫아도 유지, 마지막 열람·송수신 후 **70분 무활동 시 자동 만료** 삭제) |
+| `cbt_ai_log_v1`    | `[{ ts, examId, no, question, imageCount, model, fallbackUsed, primaryError, latencyMs, success, error? }]` (최근 `AI_LOG_MAX`=200건) | AI 호출 1회당 1엔트리. 설정 시트 → "AI 호출 로그"에서 확인. examId 무관 전역. |
 | `cbt_last_exam_v1` | `string` (examId) | 마지막 선택 회차 (현재 미사용 — 홈에서 항상 매니페스트 노출) |
 | `cbt_settings_v1`  | `{ theme?: 'light'\|'dark' }` | 야간 모드 등 앱 설정 |
 
@@ -25,6 +26,7 @@
   - 메모:   `getNotes(no)` / `addNote(no, content)` / `deleteNote(no, id)`
   - 답:     `getCurrentAnswer(no)` / `setCurrentAnswer(no, idx)` / `clearTempAnswerIfLeaving(no)`
   - AI 대화: `getAiMessages(no)` (TTL 만료 시 lazy 삭제 후 빈 배열) / `saveAiMessages(no, messages)` / `touchAiAccess(no)` (열람 시각만 갱신)
+  - AI 호출 로그: `getAiLog()` / `appendAiLog(entry)` (최대 `AI_LOG_MAX`=200, 초과 시 가장 오래된 항목 drop) / `clearAiLog()`
   - 테마: `getSettings()` / `setSetting(key, value)` / `applyTheme('light'|'dark')`
 - 초기화: `resetCurrentExam()` — 현재 회차의 북마크/태그/메모/AI 대화 + 메모리 답 모두 삭제 (테마는 유지)
 

@@ -13,6 +13,8 @@ const LS = {
   notes:     'cbt_notes_v1',     // { [examId]: { [no]: [{id, content, savedAt}] } }
   ai:        'cbt_ai_v2',        // { [examId]: { [no]: { lastOpenedAt: number, messages: [{role, content, saved?}] } } }
                                   // 70분(AI_TTL_MS) 무활동 시 자동 만료 — 열람·송수신 시각을 기준으로 갱신
+  aiLog:     'cbt_ai_log_v1',    // [{ ts, examId, no, model, fallbackUsed, primaryError, latencyMs, success, error?, question }]
+                                  // 최근 N개만 유지(AI_LOG_MAX). 설정 시트의 "AI 호출 로그"에서 확인
   lastExam:  'cbt_last_exam_v1', // string (examId)
   settings:  'cbt_settings_v1'   // { theme?: 'light'|'dark' }
 };
@@ -41,6 +43,9 @@ const TIMER_WARN_MS = 10 * 60 * 1000;
 
 // AI 대화 자동 만료: 마지막 열람·송수신으로부터 70분
 const AI_TTL_MS = 70 * 60 * 1000;
+
+// AI 호출 로그: 최근 N개만 유지(클라 LS 부피 관리)
+const AI_LOG_MAX = 200;
 
 const CIRCLED = ['①', '②', '③', '④', '⑤'];
 
@@ -222,13 +227,16 @@ function handlePopState(e) {
   const aiSheet = qs('#ai-sheet');
   const choiceSheet = qs('#choice-sheet');
   const settingsSheet = qs('#settings-sheet');
+  const logSheet = qs('#log-sheet');
   const aiOpen = aiSheet && !aiSheet.classList.contains('hidden');
   const choiceOpen = choiceSheet && !choiceSheet.classList.contains('hidden');
   const settingsOpen = settingsSheet && !settingsSheet.classList.contains('hidden');
-  if (aiOpen || choiceOpen || settingsOpen) {
+  const logOpen = logSheet && !logSheet.classList.contains('hidden');
+  if (aiOpen || choiceOpen || settingsOpen || logOpen) {
     if (aiOpen) closeAiSheet();
     if (choiceOpen) closeChoiceSheet();
     if (settingsOpen) closeSettingsSheet();
+    if (logOpen) closeLogSheet();
     try { history.forward(); } catch {}
     return;
   }
@@ -409,6 +417,20 @@ function saveAiMessages(no, messages) {
     return all;
   });
 }
+// ---- AI 호출 로그 (per-app, examId 무관) ----
+// 호출 1회 = 1 엔트리. 가장 최근이 배열 끝.
+function getAiLog() {
+  const v = loadLS(LS.aiLog, []);
+  return Array.isArray(v) ? v : [];
+}
+function appendAiLog(entry) {
+  const cur = getAiLog();
+  cur.push(entry);
+  while (cur.length > AI_LOG_MAX) cur.shift();
+  saveLS(LS.aiLog, cur);
+}
+function clearAiLog() { saveLS(LS.aiLog, []); }
+
 // 대화를 변경하지 않고 열람 시각만 갱신 (TTL 리셋)
 function touchAiAccess(no) {
   patchLS(LS.ai, {}, all => {
@@ -1455,6 +1477,22 @@ async function sendAiMessage(text) {
   // 파일 존재 기반으로 수집(없으면 무시). 실제 문제와 시각 자료를 최대한 함께 전달.
   const images = await fetchQuestionImages(state.examId, card.no, (card.c || []).length);
 
+  const reqStartedAt = Date.now();
+  // 로그 항목 — 호출 결과(성공/실패/모델/지연)를 한 줄로 적재
+  let logEntry = {
+    ts: reqStartedAt,
+    examId: state.examId,
+    no: card.no,
+    question: String(text || '').slice(0, 140),
+    imageCount: images.length,
+    model: null,
+    fallbackUsed: false,
+    primaryError: null,
+    latencyMs: 0,
+    success: false,
+    error: null
+  };
+
   try {
     const res = await fetch('/api/ask', {
       method: 'POST',
@@ -1464,16 +1502,29 @@ async function sendAiMessage(text) {
     const data = await res.json().catch(() => ({}));
     const i = state.ai.messages.indexOf(loadingMsg);
     if (i !== -1) state.ai.messages.splice(i, 1);
+    // 서버가 알려준 진단 정보를 로그에 흡수
+    logEntry.model        = data.model || null;
+    logEntry.fallbackUsed = !!data.fallbackUsed;
+    logEntry.primaryError = data.primaryError || null;
+    logEntry.latencyMs    = (typeof data.latencyMs === 'number') ? data.latencyMs : (Date.now() - reqStartedAt);
     if (!res.ok || data.error) {
       state.ai.messages.push({ role: 'ai', content: data.error || ('요청 실패 (' + res.status + ')'), error: true });
+      logEntry.success = false;
+      logEntry.error = data.error || ('HTTP ' + res.status);
     } else {
       state.ai.messages.push({ role: 'ai', content: data.answer || '(빈 응답)' });
+      logEntry.success = true;
     }
   } catch (err) {
     const i = state.ai.messages.indexOf(loadingMsg);
     if (i !== -1) state.ai.messages.splice(i, 1);
-    state.ai.messages.push({ role: 'ai', content: '네트워크 오류: ' + (err.message || err), error: true });
+    const msg = '네트워크 오류: ' + (err.message || err);
+    state.ai.messages.push({ role: 'ai', content: msg, error: true });
+    logEntry.success = false;
+    logEntry.error = msg;
+    logEntry.latencyMs = Date.now() - reqStartedAt;
   }
+  appendAiLog(logEntry);
   renderAiSheet();
   // 답변을 끝까지 내리지 않고, 답변의 시작이 보이게 스크롤
   requestAnimationFrame(() => scrollToLatestAiAnswer());
@@ -1552,6 +1603,78 @@ function closeSettingsSheet() {
   }, 250);
 }
 
+// ---- AI 호출 로그 시트 ----
+function openLogSheet() {
+  renderLogSheet();
+  qs('#log-overlay').classList.remove('hidden');
+  qs('#log-sheet').classList.remove('hidden');
+  requestAnimationFrame(() => {
+    qs('#log-overlay').classList.add('show');
+    qs('#log-sheet').classList.add('show');
+  });
+}
+function closeLogSheet() {
+  const sheet = qs('#log-sheet');
+  const overlay = qs('#log-overlay');
+  sheet.classList.remove('show');
+  overlay.classList.remove('show');
+  setTimeout(() => {
+    sheet.classList.add('hidden');
+    overlay.classList.add('hidden');
+  }, 250);
+}
+function fmtLogTime(ts) {
+  const d = new Date(ts);
+  // 같은 날이면 시:분:초, 다른 날이면 월/일 시:분
+  const now = new Date();
+  const sameDay = d.getFullYear() === now.getFullYear()
+    && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+  const pad = n => String(n).padStart(2, '0');
+  if (sameDay) return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  return `${pad(d.getMonth()+1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function renderLogSheet() {
+  const meta = qs('#log-meta');
+  const list = qs('#log-list');
+  if (!list) return;
+  const log = getAiLog();
+  const okCount = log.filter(e => e.success).length;
+  const fbCount = log.filter(e => e.fallbackUsed).length;
+  if (meta) meta.textContent = log.length
+    ? `${log.length}건 · 성공 ${okCount} · 폴백 ${fbCount} (최근 ${AI_LOG_MAX}개까지 보관)`
+    : '';
+  list.innerHTML = '';
+  if (!log.length) {
+    list.appendChild(el('div', { class: 'log-empty' }, '아직 AI 호출 기록이 없어요'));
+    return;
+  }
+  // 최신 순
+  log.slice().reverse().forEach(e => {
+    const cls = 'log-item' + (e.success ? '' : ' fail') + (e.fallbackUsed ? ' fallback' : '');
+    const head = el('div', { class: 'log-row1' }, [
+      el('span', { class: 'log-status' }, e.success ? '✓' : '✕'),
+      el('span', { class: 'log-time' }, fmtLogTime(e.ts)),
+      el('span', { class: 'log-latency' }, (e.latencyMs != null ? e.latencyMs + 'ms' : ''))
+    ]);
+    const where = el('div', { class: 'log-row2' },
+      `${e.examId || '?'} · 문제 ${e.no != null ? e.no : '?'}` + (e.imageCount ? ` · 🖼 ${e.imageCount}` : '')
+    );
+    const modelLine = el('div', { class: 'log-row3' }, [
+      el('span', { class: 'log-model' }, '모델: ' + (e.model || '—')),
+      e.fallbackUsed ? el('span', { class: 'log-badge-fb' }, '폴백') : null
+    ]);
+    const kids = [head, where, modelLine];
+    if (e.question) kids.push(el('div', { class: 'log-q' }, '“' + e.question + '”'));
+    if (e.fallbackUsed && e.primaryError) {
+      kids.push(el('div', { class: 'log-pre' }, 'primary 실패: ' + e.primaryError));
+    }
+    if (!e.success && e.error) {
+      kids.push(el('div', { class: 'log-err' }, e.error));
+    }
+    list.appendChild(el('div', { class: cls }, kids));
+  });
+}
+
 function bindEvents() {
   // 설정 아이콘
   qsa('#btn-settings, #btn-settings-2').forEach(b => b.addEventListener('click', openSettingsSheet));
@@ -1564,6 +1687,21 @@ function bindEvents() {
     closeSettingsSheet();
     if (state.view === 'detail') renderDetail(state.currentNo);
     if (state.view === 'list') renderList();
+  });
+
+  // AI 호출 로그 — 설정 시트의 메뉴에서 열림
+  const btnOpenLog = qs('#btn-open-log');
+  if (btnOpenLog) btnOpenLog.addEventListener('click', () => {
+    closeSettingsSheet();
+    setTimeout(openLogSheet, 260); // 설정 시트 닫힘 애니메이션 직후
+  });
+  qs('#log-close').addEventListener('click', closeLogSheet);
+  qs('#log-overlay').addEventListener('click', closeLogSheet);
+  qs('#btn-log-clear').addEventListener('click', () => {
+    if (!confirm('모든 AI 호출 기록을 삭제할까요?')) return;
+    clearAiLog();
+    renderLogSheet();
+    toast('로그를 삭제했어요');
   });
 
   // 야간 모드 토글
