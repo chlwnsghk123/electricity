@@ -1,5 +1,9 @@
 # Updates
 
+## v1.15 — 2026-05-15
+- **AI 입력창 키 동작**: 컴퓨터(비터치 환경)에서 `Enter`로 질문 전송, `Shift+Enter`로 줄바꿈. 터치 기기는 기존대로 `Enter`=줄바꿈 유지(전송 버튼 사용).
+- 코드 변경 위치: `app.js` `#sheet-textarea` keydown 핸들러. `window.matchMedia('(pointer: coarse)')`로 터치 여부 판별, IME 조합 중(`isComposing`)에는 전송 안 함.
+
 ## v1.14 — 2026-05-02
 - **AI 모델 변경**: `MODEL_PRIMARY` `models/gemini-3-flash-preview` → `gemini-2.5-flash` (정식 stable 라인). 폴백도 `gemini-1.5-flash`(폐기 임박) → `gemini-2.0-flash`로 동시 이동해 폴백 자체가 죽을 위험 제거.
 - 코드 변경 위치: `api/ask.js` 13~14행. `docs/AI-INTEGRATION.md` §2 동기화.

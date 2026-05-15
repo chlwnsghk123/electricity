@@ -1729,7 +1729,21 @@ function bindEvents() {
     sendAiMessage(text);
   });
   const ta = qs('#sheet-textarea');
-  if (ta) ta.addEventListener('input', () => autoResizeTextarea(ta));
+  if (ta) {
+    ta.addEventListener('input', () => autoResizeTextarea(ta));
+    // 컴퓨터(비터치 환경): Enter=전송, Shift+Enter=줄바꿈
+    ta.addEventListener('keydown', e => {
+      if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
+      const isTouch = window.matchMedia('(pointer: coarse)').matches;
+      if (isTouch) return;
+      e.preventDefault();
+      const text = ta.value.trim();
+      if (!text) return;
+      ta.value = '';
+      autoResizeTextarea(ta);
+      sendAiMessage(text);
+    });
+  }
   bindSheetDrag();
 
   // 선택 시트
