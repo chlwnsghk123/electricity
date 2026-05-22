@@ -73,6 +73,10 @@
           <div class="mode-title">모의고사</div>
           <div class="mode-desc">정식(100문제·150분) 또는 하프(50문제·75분)</div>
         </button>
+        <button class="mode-card" data-mode="history">
+          <div class="mode-title">지난 모의고사</div>
+          <div class="mode-desc" id="modes-history-desc">제출한 모의고사 복기 · 문제별 메모</div>
+        </button>
       </div>
     </section>
 
@@ -153,6 +157,16 @@
         <div class="header-right"></div>
       </header>
       <div class="result-scroll" id="result-content"></div>
+    </section>
+
+    <!-- 지난 모의고사 (시험 기록) -->
+    <section id="history-view" class="screen hidden">
+      <header class="app-header">
+        <button class="back-btn" id="history-back" aria-label="뒤로">←</button>
+        <div class="header-title">지난 모의고사</div>
+        <div class="header-right"></div>
+      </header>
+      <div class="history-scroll" id="history-content"></div>
     </section>
   </div>
 

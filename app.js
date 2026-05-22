@@ -14,7 +14,8 @@ const LS = {
   ai:        'cbt_ai_v2',        // { [examId]: { [no]: { lastOpenedAt: number, messages: [{role, content, saved?}] } } }
                                   // 70분(AI_TTL_MS) 무활동 시 자동 만료 — 열람·송수신 시각을 기준으로 갱신
   lastExam:  'cbt_last_exam_v1', // string (examId)
-  settings:  'cbt_settings_v1'   // { theme?: 'light'|'dark' }
+  settings:  'cbt_settings_v1', // { theme?: 'light'|'dark' }
+  examHistory: 'cbt_exam_history_v1' // { [examId]: [{ id, variant, submittedAt, durationMs, examSet, answers, result }] }
 };
 
 // 6색 태그 + 의미. 회색은 "지우기(미완료)" 역할도 겸함.
@@ -50,8 +51,8 @@ const state = {
   exam: null,
   examId: null,
 
-  view: 'home',               // home | modes | list | detail | result
-  mode: null,                 // study | exam | random
+  view: 'home',               // home | modes | list | detail | result | history
+  mode: null,                 // study | exam | random | review
   examVariant: null,          // full | half (모의고사 유형)
   randomSubject: null,        // 랜덤 학습 과목 이름
 
@@ -67,6 +68,11 @@ const state = {
   // 모의고사
   examSet: [],                // 선택된 문제 번호 순서
   examAnswers: {},            // 모의고사 전용 메모리 답안 (제출 전까지 유지)
+
+  // 모의고사 결과·복기
+  resultAttempt: null,        // 결과 화면이 보여주는 응시 기록 (제출 직후 또는 지난 모의고사)
+  resultFrom: 'submit',       // 'submit' | 'history' — 결과 화면 진입 경로
+  reviewAttempt: null,        // 복기 중인 응시 기록 (mode === 'review')
 
   // 학습/랜덤에서 세션 중 답 (문제 이탈 시 소멸)
   tempAnswer: null,           // { no, idx }
@@ -202,7 +208,8 @@ function show(view, options) {
     modes:   '#modes-view',
     list:    '#list-view',
     detail:  '#detail-view',
-    result:  '#result-view'
+    result:  '#result-view',
+    history: '#history-view'
   };
   qsa('.screen').forEach(s => s.classList.add('hidden'));
   const target = map[view] && qs(map[view]);
@@ -258,6 +265,7 @@ function handlePopState(e) {
       show('detail', { fromPop: true });
       break;
     case 'result': show('result', { fromPop: true }); break;
+    case 'history': renderHistory(); show('history', { fromPop: true }); break;
     default:       renderHome(); show('home', { fromPop: true });
   }
 }
@@ -441,6 +449,7 @@ function applyTheme(theme) {
 // study/random: state.tempAnswer (해당 문제 이탈 시 소멸)
 function getCurrentAnswer(no) {
   if (state.mode === 'exam') return state.examAnswers[no] ?? null;
+  if (state.mode === 'review') return (state.reviewAttempt && state.reviewAttempt.answers[no]) ?? null;
   return state.tempAnswer && state.tempAnswer.no === no ? state.tempAnswer.idx : null;
 }
 function setCurrentAnswer(no, idx) {
@@ -448,8 +457,33 @@ function setCurrentAnswer(no, idx) {
   else state.tempAnswer = { no, idx };
 }
 function clearTempAnswerIfLeaving(no) {
-  if (state.mode === 'exam') return;
+  if (state.mode === 'exam' || state.mode === 'review') return;
   if (state.tempAnswer && state.tempAnswer.no === no) state.tempAnswer = null;
+}
+
+// ---- 모의고사 응시 기록 (제출 시 자동 저장 · 복기 · 삭제) ----
+const EXAM_HISTORY_MAX = 30;
+function getExamHistory() {
+  const arr = _scope(LS.examHistory, []);
+  return Array.isArray(arr) ? arr : [];
+}
+function saveExamAttempt(attempt) {
+  patchLS(LS.examHistory, {}, all => {
+    const id = state.examId;
+    if (!id) return all;
+    const list = Array.isArray(all[id]) ? all[id] : [];
+    list.unshift(attempt); // 최신이 맨 앞
+    all[id] = list.slice(0, EXAM_HISTORY_MAX);
+    return all;
+  });
+}
+function deleteExamAttempt(attemptId) {
+  patchLS(LS.examHistory, {}, all => {
+    const id = state.examId;
+    if (!id || !Array.isArray(all[id])) return all;
+    all[id] = all[id].filter(a => a.id !== attemptId);
+    return all;
+  });
 }
 
 // ---- 데이터 로드 ----
@@ -536,6 +570,13 @@ function renderModes() {
     const total = state.exam.meta.total_questions || state.exam.questions.length;
     const correct = correctCountOfExam(state.examId);
     meta.textContent = `진행률 ${correct} / ${total} · 맞춘 문제 수 기준`;
+  }
+  const histDesc = qs('#modes-history-desc');
+  if (histDesc) {
+    const n = getExamHistory().length;
+    histDesc.textContent = n
+      ? `저장된 모의고사 ${n}개 · 복기 · 문제별 메모`
+      : '제출한 모의고사 복기 · 문제별 메모';
   }
 }
 
@@ -668,6 +709,9 @@ function renderDetail(no) {
       progress.textContent = `${i} / ${state.examSet.length}`;
     } else if (state.mode === 'random') {
       progress.textContent = `${state.randomSeen.length} / ${state.exam.questions.filter(x => subjectNameOf(x) === state.randomSubject).length}`;
+    } else if (state.mode === 'review' && state.reviewAttempt) {
+      const i = state.reviewAttempt.examSet.indexOf(no) + 1;
+      progress.textContent = `복기 ${i} / ${state.reviewAttempt.examSet.length}`;
     } else {
       progress.textContent = '';
     }
@@ -783,6 +827,7 @@ function renderDetail(no) {
   let navList = state.filteredNos;
   if (state.mode === 'exam') navList = state.examSet;
   if (state.mode === 'random') navList = state.randomSeen; // 이력 기반 prev/next
+  if (state.mode === 'review') navList = state.reviewAttempt ? state.reviewAttempt.examSet : [];
   if (!navList.length) navList = state.exam.questions.map(x => x.no);
   state.filteredNos = navList;
 
@@ -960,18 +1005,17 @@ function submitNoteForm() {
   toast('메모를 저장했어요');
 }
 
-// ---------- 결과 (채점) ----------
-function grade() {
+// ---------- 결과 (채점 · 복기) ----------
+// 응시 기록 채점 — examSet(번호 배열)과 answers({no: idx})만으로 점수 계산하는 순수 함수
+function gradeAttempt(examSet, answers) {
   const byS = {};
-  const pool = state.mode === 'exam'
-    ? state.examSet.map(no => state.exam.questions.find(q => q.no === no)).filter(Boolean)
-    : state.exam.questions;
-  const getA = no => state.examAnswers[no];
-  pool.forEach(q => {
+  examSet.forEach(no => {
+    const q = state.exam.questions.find(x => x.no === no);
+    if (!q) return;
     const s = subjectNameOf(q);
     byS[s] ??= { correct: 0, total: 0 };
     byS[s].total++;
-    if (getA(q.no) === q.a) byS[s].correct++;
+    if (answers[no] === q.a) byS[s].correct++;
   });
   const names = (state.subjectNames || []).filter(n => byS[n]);
   const scores = names.map(n => {
@@ -981,20 +1025,29 @@ function grade() {
   });
   const fail = scores.some(s => s.score20 < PASS.perSubjectMin);
   const avg = scores.length ? scores.reduce((a, s) => a + s.score20, 0) / scores.length : 0;
-  const score100 = scores.reduce((a, s) => a + s.correct, 0) * (100 / Math.max(1, scores.reduce((a, s) => a + s.total, 0)));
+  const totQ = scores.reduce((a, s) => a + s.total, 0);
+  const totC = scores.reduce((a, s) => a + s.correct, 0);
+  const score100 = totC * (100 / Math.max(1, totQ));
   return { scores, avg, score100: Math.round(score100), pass: !fail && avg >= PASS.averageMin };
 }
 
 function renderResult() {
   const wrap = qs('#result-content');
   if (!wrap) return;
-  const r = grade();
+  const attempt = state.resultAttempt;
   wrap.innerHTML = '';
-  const summary = el('div', { class: 'result-score ' + (r.pass ? 'pass' : 'fail') }, [
+  if (!attempt) return;
+  const r = attempt.result;
+
+  wrap.appendChild(el('div', { class: 'result-score ' + (r.pass ? 'pass' : 'fail') }, [
     el('div', { class: 'big' }, r.pass ? '합격' : '불합격'),
     el('div', { class: 'small' }, `평균 ${r.avg.toFixed(1)}점 · 환산 ${r.score100}점`)
-  ]);
-  wrap.appendChild(summary);
+  ]));
+
+  const variantLabel = attempt.variant === 'half' ? '하프 모의고사' : '정식 모의고사';
+  const when = new Date(attempt.submittedAt).toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' });
+  const dur = attempt.durationMs ? ' · 소요 ' + Math.max(1, Math.round(attempt.durationMs / 60000)) + '분' : '';
+  wrap.appendChild(el('div', { class: 'result-meta' }, `${variantLabel} · ${when}${dur}`));
 
   r.scores.forEach(s => {
     const isFail = s.score20 < PASS.perSubjectMin;
@@ -1005,10 +1058,63 @@ function renderResult() {
     ]));
   });
 
+  wrap.appendChild(el('div', { class: 'result-section-title' }, '문제별 결과 — 칸을 누르면 복기'));
+  const grid = el('div', { class: 'q-grid' });
+  attempt.examSet.forEach(no => {
+    const q = state.exam.questions.find(x => x.no === no);
+    const sel = attempt.answers[no];
+    let cls = 'q-grid-cell ';
+    if (sel == null) cls += 'blank';
+    else if (q && sel === q.a) cls += 'correct';
+    else cls += 'wrong';
+    grid.appendChild(el('button', {
+      class: cls, dataset: { action: 'review-q', no: String(no) }
+    }, String(no)));
+  });
+  wrap.appendChild(grid);
+  wrap.appendChild(el('div', { class: 'q-grid-legend' }, [
+    el('span', null, [el('i', { style: 'background:var(--tag-green)' }), '정답']),
+    el('span', null, [el('i', { style: 'background:var(--tag-red)' }), '오답']),
+    el('span', null, [el('i', { style: 'background:var(--tag-gray)' }), '미응답'])
+  ]));
+
+  const fromHistory = state.resultFrom === 'history';
   wrap.appendChild(el('button', {
     class: 'ghost-btn', style: 'margin-top:24px;width:100%',
-    dataset: { action: 'back-home' }
-  }, '홈으로'));
+    dataset: { action: fromHistory ? 'back-history' : 'back-home' }
+  }, fromHistory ? '← 지난 모의고사 목록' : '홈으로'));
+}
+
+// ---------- 지난 모의고사 (시험 기록 목록) ----------
+function renderHistory() {
+  const wrap = qs('#history-content');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  const list = getExamHistory();
+  if (!list.length) {
+    wrap.appendChild(el('div', { class: 'history-empty' },
+      '아직 저장된 모의고사가 없어요.\n모의고사를 제출하면 여기에 자동으로 기록됩니다.'));
+    return;
+  }
+  list.forEach(a => {
+    const r = a.result || {};
+    const variantLabel = a.variant === 'half' ? '하프 모의고사' : '정식 모의고사';
+    const when = new Date(a.submittedAt).toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' });
+    const correct = (r.scores || []).reduce((s, x) => s + x.correct, 0);
+    const total = (r.scores || []).reduce((s, x) => s + x.total, 0);
+    const main = el('div', { class: 'history-main', dataset: { action: 'open-attempt', id: a.id } }, [
+      el('div', { class: 'history-variant' }, variantLabel),
+      el('div', { class: 'history-score' }, [
+        el('span', { class: r.pass ? 'pass' : 'fail' }, r.pass ? '합격' : '불합격'),
+        el('span', null, `  환산 ${r.score100 ?? 0}점`)
+      ]),
+      el('div', { class: 'history-meta' }, `정답 ${correct}/${total} · ${when}`)
+    ]);
+    const del = el('button', {
+      class: 'history-del', dataset: { action: 'delete-attempt', id: a.id }
+    }, '🗑');
+    wrap.appendChild(el('div', { class: 'history-item' }, [main, del]));
+  });
 }
 
 // ============================================================
@@ -1022,6 +1128,7 @@ function applyAutoTagIfNeeded(no, correct) {
 }
 
 function onChooseAnswer(idx) {
+  if (state.mode === 'review') return; // 복기 모드는 읽기 전용
   const no = state.currentNo;
   if (no == null) return;
   const q = state.exam.questions.find(x => x.no === no);
@@ -1107,17 +1214,56 @@ function submitExam() {
     ? `아직 풀지 않은 문제가 ${remain}개 있어요.\n답한 문제 ${answered} / ${total}\n지금 제출할까요?`
     : `모든 문제에 답했습니다 (${answered} / ${total}).\n제출할까요?`;
   if (!confirm(msg)) return;
+  finishExam();
+}
+
+// 제출 / 시간 만료 공통 — 채점 · 정답 태그 · 응시 기록 자동 저장 · 결과 화면
+function finishExam() {
+  const examSet = state.examSet.slice();
+  const answers = { ...state.examAnswers };
+  const durationMs = state.timer.startedAt ? Date.now() - state.timer.startedAt : 0;
   stopTimer();
-  // 제출 시점에 정답/오답 자동 태그 일괄 적용
-  state.examSet.forEach(no => {
+  // 정답/오답 자동 태그 (미응답은 생략)
+  examSet.forEach(no => {
     const q = state.exam.questions.find(x => x.no === no);
     if (!q) return;
-    const sel = state.examAnswers[no];
-    if (sel == null) return; // 미응답은 태그 생략
+    const sel = answers[no];
+    if (sel == null) return;
     setTag(no, sel === q.a ? 'green' : 'red');
   });
+  const attempt = {
+    id: uid(),
+    variant: state.examVariant || 'full',
+    submittedAt: Date.now(),
+    durationMs,
+    examSet,
+    answers,
+    result: gradeAttempt(examSet, answers)
+  };
+  saveExamAttempt(attempt);
+  state.resultAttempt = attempt;
+  state.resultFrom = 'submit';
   renderResult();
   show('result');
+}
+
+// 지난 모의고사 목록 진입
+function openHistory() {
+  if (!state.exam) return;
+  renderHistory();
+  show('history');
+}
+
+// 응시 기록 복기 — 상세 화면을 review 모드로 재사용(읽기 전용)
+function startReview(attempt, no) {
+  if (!attempt) return;
+  state.mode = 'review';
+  state.reviewAttempt = attempt;
+  state.tempAnswer = null;
+  const targetNo = no != null ? no : attempt.examSet[0];
+  if (targetNo == null) return;
+  renderDetail(targetNo);
+  show('detail');
 }
 
 // ---- 랜덤 학습: 과목 선택 → 첫 문제 ----
@@ -1224,18 +1370,8 @@ function tickTimer() {
     t.classList.toggle('warn', remain <= TIMER_WARN_MS);
   }
   if (remain <= 0) {
-    stopTimer();
     toast('시간이 종료되어 자동 제출됩니다');
-    // 자동 제출
-    state.examSet.forEach(no => {
-      const q = state.exam.questions.find(x => x.no === no);
-      if (!q) return;
-      const sel = state.examAnswers[no];
-      if (sel == null) return;
-      setTag(no, sel === q.a ? 'green' : 'red');
-    });
-    renderResult();
-    show('result');
+    finishExam();
   }
 }
 
@@ -1599,6 +1735,7 @@ function bindEvents() {
   qs('#modes-view').addEventListener('click', e => {
     const card = e.target.closest('.mode-card');
     if (!card) return;
+    if (card.dataset.mode === 'history') { openHistory(); return; }
     enterMode(card.dataset.mode);
   });
 
@@ -1692,7 +1829,34 @@ function bindEvents() {
   // 결과 뷰
   qs('#result-back').addEventListener('click', () => history.back());
   qs('#result-view').addEventListener('click', e => {
-    if (e.target.closest('[data-action="back-home"]')) { renderHome(); show('home'); }
+    const rq = e.target.closest('[data-action="review-q"]');
+    if (rq) { startReview(state.resultAttempt, parseInt(rq.dataset.no, 10)); return; }
+    if (e.target.closest('[data-action="back-history"]')) { history.back(); return; }
+    if (e.target.closest('[data-action="back-home"]')) { renderHome(); show('home'); return; }
+  });
+
+  // 지난 모의고사 뷰
+  qs('#history-back').addEventListener('click', () => history.back());
+  qs('#history-view').addEventListener('click', e => {
+    const del = e.target.closest('[data-action="delete-attempt"]');
+    if (del) {
+      if (confirm('이 모의고사 기록을 삭제할까요?')) {
+        deleteExamAttempt(del.dataset.id);
+        renderHistory();
+      }
+      return;
+    }
+    const open = e.target.closest('[data-action="open-attempt"]');
+    if (open) {
+      const attempt = getExamHistory().find(a => a.id === open.dataset.id);
+      if (attempt) {
+        state.resultAttempt = attempt;
+        state.resultFrom = 'history';
+        renderResult();
+        show('result');
+      }
+      return;
+    }
   });
 
   // AI 바텀시트
