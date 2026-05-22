@@ -853,6 +853,87 @@ input, textarea { font-family: inherit; color: var(--text-1); }
 }
 .subject-score-row .fail { color: var(--danger); font-weight: 600; }
 
+/* 모의고사 복기: O/X 문제 격자 */
+.result-meta {
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-3);
+  margin: -14px 0 18px;
+}
+.result-section-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-3);
+  margin: 22px 0 10px;
+}
+.q-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+  gap: 6px;
+}
+.q-grid-cell {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 8px;
+  color: #fff;
+  border: none;
+}
+.q-grid-cell.correct { background: var(--tag-green); }
+.q-grid-cell.wrong   { background: var(--tag-red); }
+.q-grid-cell.blank   { background: var(--tag-gray); color: var(--text-1); }
+.q-grid-cell:active  { opacity: .65; }
+.q-grid-legend {
+  display: flex;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--text-3);
+  margin-top: 10px;
+}
+.q-grid-legend span { display: flex; align-items: center; gap: 5px; }
+.q-grid-legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+
+/* 지난 모의고사 목록 */
+.history-scroll { padding: 16px; }
+.history-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  margin-bottom: 10px;
+  color: var(--text-1);
+}
+.history-item:active { background: var(--surface-2); }
+.history-main { flex: 1; min-width: 0; }
+.history-variant { font-size: 11px; font-weight: 700; color: var(--primary); }
+.history-score { font-size: 16px; font-weight: 700; margin-top: 2px; }
+.history-score .pass { color: var(--success); }
+.history-score .fail { color: var(--danger); }
+.history-meta { font-size: 12px; color: var(--text-3); margin-top: 3px; }
+.history-del {
+  flex: none;
+  width: 36px; height: 36px;
+  border-radius: 9px;
+  background: var(--surface-2);
+  font-size: 15px;
+}
+.history-del:active { background: var(--tag-red); }
+.history-empty {
+  text-align: center;
+  color: var(--text-3);
+  padding: 60px 20px;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
 .ghost-btn {
   padding: 12px 16px;
   border-radius: var(--radius-md);

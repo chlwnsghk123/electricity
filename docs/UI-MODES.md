@@ -1,18 +1,19 @@
 # UI · 화면 · 모드 (UI-MODES)
 
-## 1. 화면(View) 5종
+## 1. 화면(View) 6종
 
 | view | 섹션 ID | 용도 |
 |---|---|---|
 | `home` | `#home` | 회차 선택. 우측 진행률 (`64/100` 등) |
-| `modes` | `#modes-view` | 학습 / 랜덤 학습 / 모의고사 카드 3개 |
+| `modes` | `#modes-view` | 학습 / 랜덤 학습 / 모의고사 / 지난 모의고사 카드 4개 |
 | `list` | `#list-view` | 학습 모드 전용 — 과목 탭 + 검색 + 필터 칩 + 카드 리스트 |
-| `detail` | `#detail-view` | 문제 상세 (선택지, 정답 공개, 태그, 메모, AI) |
-| `result` | `#result-view` | 모의고사 채점 결과 |
+| `detail` | `#detail-view` | 문제 상세 (선택지, 정답 공개, 태그, 메모, AI). `review` 모드 시 읽기 전용 복기 |
+| `result` | `#result-view` | 모의고사 채점 결과 + O/X 문제 격자(칸 클릭 → 복기 진입) |
+| `history` | `#history-view` | 지난 모의고사 — 저장된 응시 기록 목록(복기 진입 · 개별 삭제) |
 
 전환은 `show(view)` 한 곳에서. 진입할 때마다 해당 `render*()` 호출.
 
-## 2. 모드(Mode) 3종
+## 2. 모드(Mode) 3종 + 복기(review)
 
 ### 2.1 study (학습 모드)
 - list → detail → list
@@ -34,9 +35,12 @@
 - 상세 본문 위에 **sticky 진행도 바** (`renderExamProgressBar`) — 답한 문제/미답을 칸 단위로 시각화
 - 정·오 색 미표시. 답은 `examAnswers`에 보관.
 - 마지막 문제 next 버튼이 "시험 제출하기"로 변환
-- 제출 시 `grade()` → result + green/red 일괄 자동 태그
-- 시간 만료 시 자동 제출 (`tickTimer`)
+- 제출/시간만료 시 `finishExam()` → 채점 + green/red 일괄 자동 태그 + 응시 기록 자동 저장(`cbt_exam_history_v1`) → result
 - "뒤로"(헤더 ← 또는 안드로이드 시스템 백)는 시험 중단 확인 모달 → 취소 시 history.pushState로 detail 복구
+
+### 2.4 review (복기)
+- 결과 화면의 O/X 격자 또는 「지난 모의고사」 목록(`#history-view`)에서 진입. 상세 화면을 읽기 전용으로 재사용.
+- 저장된 응시 기록의 내 답안·정답을 표시(선택 불가), 문제별 메모 작성 가능. prev/next는 그 응시의 `examSet` 순회.
 
 ## 3. 상세 화면 구성
 

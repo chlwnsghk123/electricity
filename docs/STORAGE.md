@@ -10,10 +10,12 @@
 | `cbt_ai_v2`        | `{ [examId]: { [no]: { lastOpenedAt: number, messages: [{ role, content, saved? }] } } }` | 문제별 AI 대화 히스토리 (시트 닫아도 유지, 마지막 열람·송수신 후 **70분 무활동 시 자동 만료** 삭제) |
 | `cbt_last_exam_v1` | `string` (examId) | 마지막 선택 회차 (현재 미사용 — 홈에서 항상 매니페스트 노출) |
 | `cbt_settings_v1`  | `{ theme?: 'light'\|'dark' }` | 야간 모드 등 앱 설정 |
+| `cbt_exam_history_v1` | `{ [examId]: [{ id, variant, submittedAt, durationMs, examSet, answers, result }] }` | 모의고사 응시 기록 — 제출 시 자동 저장(복기·삭제). 회차당 최근 30개 |
 
-**중요: 답(answers)은 localStorage에 저장하지 않는다.**
+**중요: 진행 중인 답(answers)은 localStorage에 저장하지 않는다.**
 - 학습/랜덤 모드: `state.tempAnswer = {no, idx}` (현재 문제만, 이탈 시 소멸)
 - 모의고사: `state.examAnswers = {no: idx}` (시험 시작~제출까지 메모리 유지)
+- **단, 제출 완료된 모의고사**는 `cbt_exam_history_v1`에 응시 기록 스냅샷(examSet + answers + 점수)으로 보관된다 — 복기 전용. 복기는 상세 화면을 `review` 모드로 재사용하며 답안은 이 스냅샷에서 읽는다.
 
 ## 2. 헬퍼 (Part 2)
 
