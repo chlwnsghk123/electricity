@@ -714,6 +714,13 @@ function renderDetail(no) {
   if (!q) return;
   state.currentNo = no;
 
+  // 모의고사 중에는 메모·AI·태그 칩을 가린다 (시험 중 외부 정보·태그 노출 방지)
+  // — 복기·학습·랜덤에서는 모두 표시.
+  const examMode = state.mode === 'exam';
+  const ns = qs('#notes-section'); if (ns) ns.classList.toggle('hidden', examMode);
+  const aiBtn = qs('#btn-ai-ask'); if (aiBtn) aiBtn.classList.toggle('hidden', examMode);
+  const tagBtn = qs('#btn-tag'); if (tagBtn) tagBtn.classList.toggle('hidden', examMode);
+
   // 타이틀
   qs('#detail-title').textContent = `문제 ${q.no}`;
   qs('#detail-subject').textContent = subjectNameOf(q);
@@ -1993,17 +2000,52 @@ function bindEvents() {
   qs('#choice-close').addEventListener('click', closeChoiceSheet);
 
   // 키보드 ←/→ : 상세 화면에서 이전/다음 문제로 이동
+  // 키보드 ↑/↓ : 선택지 버튼 포커스 이동 (모의고사는 직접 선택, 그 외는 Enter/클릭으로 선택)
   document.addEventListener('keydown', e => {
     if (state.view !== 'detail') return;
-    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     const t = e.target;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
     // 시트(AI/선택/설정)가 열려 있으면 무시
     const sheets = ['#ai-sheet', '#choice-sheet', '#settings-sheet'];
     if (sheets.some(sel => { const x = qs(sel); return x && !x.classList.contains('hidden'); })) return;
-    const btn = qs(e.key === 'ArrowLeft' ? '#btn-prev' : '#btn-next');
-    if (btn && !btn.disabled) { e.preventDefault(); btn.click(); }
+
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      const btn = qs(e.key === 'ArrowLeft' ? '#btn-prev' : '#btn-next');
+      if (btn && !btn.disabled) { e.preventDefault(); btn.click(); }
+      return;
+    }
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      const choicesEl = qs('#detail-choices');
+      if (!choicesEl) return;
+      const buttons = qsa('.choice-btn', choicesEl);
+      if (!buttons.length) return;
+      e.preventDefault();
+
+      if (state.mode === 'exam') {
+        // 모의고사: 상하로 직접 선택 (Enter 불필요)
+        const order = state.shuffles[state.currentNo] || [];
+        const sel = state.examAnswers[state.currentNo];
+        const curPos = (sel != null) ? order.indexOf(sel) : -1;
+        let nextPos;
+        if (curPos < 0) nextPos = e.key === 'ArrowDown' ? 0 : buttons.length - 1;
+        else if (e.key === 'ArrowDown') nextPos = (curPos + 1) % buttons.length;
+        else nextPos = (curPos - 1 + buttons.length) % buttons.length;
+        onChooseAnswer(nextPos + 1); // 1-based 화면 위치 → 원본 인덱스로 환산되어 저장
+        // 재렌더된 새 버튼에 시각적 포커스 이동
+        const newBtns = qsa('.choice-btn', qs('#detail-choices'));
+        if (newBtns[nextPos]) newBtns[nextPos].focus();
+      } else {
+        // 학습/랜덤/복기: 포커스만 이동, 선택은 Enter/click
+        const cur = buttons.findIndex(b => b === document.activeElement);
+        let next;
+        if (cur < 0) next = e.key === 'ArrowDown' ? 0 : buttons.length - 1;
+        else if (e.key === 'ArrowDown') next = (cur + 1) % buttons.length;
+        else next = (cur - 1 + buttons.length) % buttons.length;
+        buttons[next].focus();
+      }
+      return;
+    }
   });
 }
 
