@@ -969,7 +969,6 @@ input, textarea { font-family: inherit; color: var(--text-1); }
   border: 0;
 }
 .bulk-tag-bar-btn:active { background: var(--primary); color: #fff; }
-
 .ghost-btn {
   padding: 12px 16px;
   border-radius: var(--radius-md);

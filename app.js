@@ -1321,7 +1321,6 @@ function bulkApplyTag(nos, color) {
   nos.forEach(no => setTag(no, color));
   toast(`${nos.length}개 문제에 «${TAG_MEANING[color]}» 적용`);
 }
-
 // ---- 랜덤 학습: 과목 선택 → 첫 문제 ----
 function openRandomSubjectSheet() {
   const items = state.subjectNames.map(name => ({
