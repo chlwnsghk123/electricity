@@ -2000,7 +2000,7 @@ function bindEvents() {
   qs('#choice-close').addEventListener('click', closeChoiceSheet);
 
   // 키보드 ←/→ : 상세 화면에서 이전/다음 문제로 이동
-  // 키보드 ↑/↓ : 선택지 버튼 사이 포커스 이동 (Enter 로 선택)
+  // 키보드 ↑/↓ : 선택지 버튼 포커스 이동 (모의고사는 직접 선택, 그 외는 Enter/클릭으로 선택)
   document.addEventListener('keydown', e => {
     if (state.view !== 'detail') return;
     if (e.ctrlKey || e.metaKey || e.altKey) return;
