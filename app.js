@@ -29,6 +29,10 @@ const TAG_MEANING = {
   yellow: '개념 복습 필요',
   blue:   '중요'
 };
+// 일괄 태그 선택용 시각 표시 (yellow 내부 코드는 실제 보라색으로 매핑됨)
+const TAG_COLOR_EMOJI = {
+  gray:'⚪', green:'🟢', red:'🔴', orange:'🟠', yellow:'🟣', blue:'🔵'
+};
 
 // 과목당 20문제 기준 환산: 과락 40점 미만(=8문제), 평균 60점 이상(=12문제)
 const PASS = { perSubjectMin: 8, averageMin: 12 };
@@ -68,6 +72,9 @@ const state = {
   // 모의고사
   examSet: [],                // 선택된 문제 번호 순서
   examAnswers: {},            // 모의고사 전용 메모리 답안 (제출 전까지 유지)
+
+  // 객관식 셔플 — 한 세션 동안 문제별로 고정(페이지 재로딩/회차 변경 시 리셋)
+  shuffles: {},               // { [no]: number[] } 원본 1-based 인덱스의 현재 표시 순서
 
   // 모의고사 결과·복기
   resultAttempt: null,        // 결과 화면이 보여주는 응시 기록 (제출 직후 또는 지난 모의고사)
@@ -510,6 +517,7 @@ async function loadExam(examId) {
   // 회차 전환 시 세션 메모리 초기화
   state.examAnswers = {};
   state.tempAnswer  = null;
+  state.shuffles    = {};
   return exam;
 }
 function subjectNameOf(q) {
@@ -656,6 +664,16 @@ function renderList() {
     if (items.length === 0) {
       listBox.appendChild(el('div', { class: 'loading' }, '조건에 맞는 문제가 없습니다.'));
     } else {
+      // 필터가 활성화돼 있으면 결과 일괄 태그 바를 맨 위에 표시
+      if (state.tagFilter) {
+        listBox.appendChild(el('div', { class: 'bulk-tag-bar' }, [
+          el('span', { class: 'bulk-tag-bar-label' }, `현재 필터 결과 ${items.length}개`),
+          el('button', {
+            class: 'bulk-tag-bar-btn',
+            dataset: { action: 'bulk-tag-filtered' }
+          }, '🏷️ 일괄 태그 적용')
+        ]));
+      }
       const bookmarks = getBookmarks();
       const tags = getTags();
       items.forEach(q => listBox.appendChild(renderQuestionCard(q, bookmarks, tags)));
@@ -759,47 +777,55 @@ function renderDetail(no) {
   if (bookmarks.has(q.no)) { bm.textContent = '★'; bm.classList.add('on'); }
   else                     { bm.textContent = '☆'; bm.classList.remove('on'); }
 
-  // 선택지
+  // 선택지 — 한 세션 동안 문제별로 고정된 순서로 셔플하여 정답 위치 암기 방지
+  if (!state.shuffles[q.no]) {
+    const orig = (q.c || []).map((_, i) => i + 1);
+    state.shuffles[q.no] = shuffle(orig);
+  }
+  const order = state.shuffles[q.no];
   const choices = qs('#detail-choices');
   choices.innerHTML = '';
-  const selected = getCurrentAnswer(q.no);
-  (q.c || []).forEach((text, i) => {
-    const idx = i + 1;
+  const selectedOrig = getCurrentAnswer(q.no); // 원본 1-based 인덱스 기준 저장
+  order.forEach((origIdx, pos) => {
+    const displayIdx = pos + 1; // 화면 위치 (1-based)
+    const text = (q.c || [])[origIdx - 1];
     let cls = 'choice-btn';
-    if (selected === idx) cls += ' selected';
-    // 학습/랜덤 모드: 답 선택 후 정·오 색 표시
-    if (state.mode !== 'exam' && selected != null) {
-      if (idx === q.a) cls += ' correct';
-      else if (idx === selected) cls += ' wrong';
+    if (selectedOrig === origIdx) cls += ' selected';
+    // 학습/랜덤/복기: 답 공개 상태에서 정·오 색 표시
+    if (state.mode !== 'exam' && selectedOrig != null) {
+      if (origIdx === q.a) cls += ' correct';
+      else if (origIdx === selectedOrig) cls += ' wrong';
     }
-    // 선택지 이미지(있으면 텍스트 아래에 표시)
+    // 선택지 이미지: 셔플과 무관하게 원본 인덱스 파일을 가져온다 (<no>-<origIdx>.png)
     const content = el('div', { class: 'choice-content' }, [
       el('span', { class: 'choice-text' }, text)
     ]);
     const ci = new Image();
     ci.className = 'choice-img';
-    ci.alt = `선택지 ${idx} 그림`;
+    ci.alt = `선택지 ${origIdx} 그림`;
     ci.style.display = 'none';
     ci.onload = () => { ci.style.display = ''; };
     ci.onerror = () => { ci.remove(); };
-    ci.src = `images/${state.examId}/${q.no}-${idx}.png`;
+    ci.src = `images/${state.examId}/${q.no}-${origIdx}.png`;
     content.appendChild(ci);
 
     choices.appendChild(el('button', {
       class: cls,
-      dataset: { action: 'choose', idx: String(idx) }
+      dataset: { action: 'choose', idx: String(displayIdx) }
     }, [
-      el('span', { class: 'num' }, CIRCLED[i] || String(idx)),
+      el('span', { class: 'num' }, CIRCLED[pos] || String(displayIdx)),
       content
     ]));
   });
   renderMath(choices);
 
-  // 정답 공개 (학습/랜덤 + 답 선택 상태)
+  // 정답 공개 (학습/랜덤/복기 + 답 선택 상태) — 셔플된 표시 위치로 환산
   const answerBox = qs('#detail-answer');
-  if (state.mode !== 'exam' && selected != null) {
-    const ok = selected === q.a;
-    answerBox.textContent = `정답: ${CIRCLED[q.a - 1]} · 내 답: ${CIRCLED[selected - 1]} ${ok ? '(정답)' : '(오답)'}`;
+  if (state.mode !== 'exam' && selectedOrig != null) {
+    const correctPos = order.indexOf(q.a) + 1;
+    const myPos = order.indexOf(selectedOrig) + 1;
+    const ok = selectedOrig === q.a;
+    answerBox.textContent = `정답: ${CIRCLED[correctPos - 1] || correctPos} · 내 답: ${CIRCLED[myPos - 1] || myPos} ${ok ? '(정답)' : '(오답)'}`;
     answerBox.classList.remove('hidden');
     renderMath(answerBox);
   } else {
@@ -1078,6 +1104,19 @@ function renderResult() {
     el('span', null, [el('i', { style: 'background:var(--tag-gray)' }), '미응답'])
   ]));
 
+  // 틀린 문제에 일괄 태그 적용 — 복기·정리용
+  const wrongNos = attempt.examSet.filter(no => {
+    const q = state.exam.questions.find(x => x.no === no);
+    const sel = attempt.answers[no];
+    return q && sel != null && sel !== q.a;
+  });
+  if (wrongNos.length) {
+    wrap.appendChild(el('button', {
+      class: 'bulk-tag-btn',
+      dataset: { action: 'bulk-tag-wrong' }
+    }, `🏷️ 틀린 문제 ${wrongNos.length}개에 태그 일괄 적용`));
+  }
+
   const fromHistory = state.resultFrom === 'history';
   wrap.appendChild(el('button', {
     class: 'ghost-btn', style: 'margin-top:24px;width:100%',
@@ -1133,9 +1172,12 @@ function onChooseAnswer(idx) {
   if (no == null) return;
   const q = state.exam.questions.find(x => x.no === no);
   if (!q) return;
-  setCurrentAnswer(no, idx);
+  // 화면 위치(idx)를 원본 인덱스로 변환 — 셔플된 순서에서 실제 정답 위치를 맞추기 위함
+  const order = state.shuffles[no];
+  const origIdx = (order && order[idx - 1]) || idx;
+  setCurrentAnswer(no, origIdx);
   // 학습/랜덤: 답 선택 즉시 자동 태그
-  if (state.mode !== 'exam') applyAutoTagIfNeeded(no, idx === q.a);
+  if (state.mode !== 'exam') applyAutoTagIfNeeded(no, origIdx === q.a);
   renderDetail(no);
 }
 
@@ -1264,6 +1306,20 @@ function startReview(attempt, no) {
   if (targetNo == null) return;
   renderDetail(targetNo);
   show('detail');
+}
+
+// ---- 일괄 태그 (현재 필터 결과 / 틀린 문제 등) ----
+function openTagPicker(title, applyFn) {
+  const items = TAG_COLORS.map(c => ({
+    title: `${TAG_COLOR_EMOJI[c]} ${TAG_MEANING[c]}`,
+    desc: c === 'gray' ? '태그 지우기' : null,
+    onClick: () => { closeChoiceSheet(); applyFn(c); }
+  }));
+  openChoiceSheet(title, items);
+}
+function bulkApplyTag(nos, color) {
+  nos.forEach(no => setTag(no, color));
+  toast(`${nos.length}개 문제에 «${TAG_MEANING[color]}» 적용`);
 }
 
 // ---- 랜덤 학습: 과목 선택 → 첫 문제 ----
@@ -1751,6 +1807,16 @@ function bindEvents() {
       renderList();
       return;
     }
+    const bk = e.target.closest('[data-action="bulk-tag-filtered"]');
+    if (bk) {
+      const nos = filteredQuestionsForStudy().map(q => q.no);
+      if (!nos.length) return;
+      openTagPicker(`필터 결과 ${nos.length}개 일괄 태그`, color => {
+        bulkApplyTag(nos, color);
+        renderList();
+      });
+      return;
+    }
     const card = e.target.closest('[data-action="open-detail"]');
     if (card) { openDetail(parseInt(card.dataset.no, 10)); return; }
   });
@@ -1831,6 +1897,19 @@ function bindEvents() {
   qs('#result-view').addEventListener('click', e => {
     const rq = e.target.closest('[data-action="review-q"]');
     if (rq) { startReview(state.resultAttempt, parseInt(rq.dataset.no, 10)); return; }
+    if (e.target.closest('[data-action="bulk-tag-wrong"]')) {
+      const att = state.resultAttempt; if (!att) return;
+      const wrongNos = att.examSet.filter(no => {
+        const q = state.exam.questions.find(x => x.no === no);
+        const sel = att.answers[no];
+        return q && sel != null && sel !== q.a;
+      });
+      if (!wrongNos.length) return;
+      openTagPicker(`틀린 문제 ${wrongNos.length}개 일괄 태그`, color => {
+        bulkApplyTag(wrongNos, color);
+      });
+      return;
+    }
     if (e.target.closest('[data-action="back-history"]')) { history.back(); return; }
     if (e.target.closest('[data-action="back-home"]')) { renderHome(); show('home'); return; }
   });
@@ -1913,6 +1992,20 @@ function bindEvents() {
   // 선택 시트
   qs('#choice-overlay').addEventListener('click', closeChoiceSheet);
   qs('#choice-close').addEventListener('click', closeChoiceSheet);
+
+  // 키보드 ←/→ : 상세 화면에서 이전/다음 문제로 이동
+  document.addEventListener('keydown', e => {
+    if (state.view !== 'detail') return;
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    // 시트(AI/선택/설정)가 열려 있으면 무시
+    const sheets = ['#ai-sheet', '#choice-sheet', '#settings-sheet'];
+    if (sheets.some(sel => { const x = qs(sel); return x && !x.classList.contains('hidden'); })) return;
+    const btn = qs(e.key === 'ArrowLeft' ? '#btn-prev' : '#btn-next');
+    if (btn && !btn.disabled) { e.preventDefault(); btn.click(); }
+  });
 }
 
 // ---------- 부트스트랩 ----------

@@ -16,6 +16,7 @@
 - 학습/랜덤 모드: `state.tempAnswer = {no, idx}` (현재 문제만, 이탈 시 소멸)
 - 모의고사: `state.examAnswers = {no: idx}` (시험 시작~제출까지 메모리 유지)
 - **단, 제출 완료된 모의고사**는 `cbt_exam_history_v1`에 응시 기록 스냅샷(examSet + answers + 점수)으로 보관된다 — 복기 전용. 복기는 상세 화면을 `review` 모드로 재사용하며 답안은 이 스냅샷에서 읽는다.
+- **답·정답·태그·채점 모두 "원본 인덱스" 기준으로 일관 저장**. 선택지 셔플은 표시에만 적용되며 `state.shuffles[no]`(메모리)가 한 세션 동안 문제별 순서를 고정한다. `onChooseAnswer`에서 화면 위치 → 원본 인덱스로 변환하여 저장하므로 `q.a`·`attempt.answers`·자동 태그·`cbt_tags_v2`는 셔플과 무관하게 안정적이다.
 
 ## 2. 헬퍼 (Part 2)
 
