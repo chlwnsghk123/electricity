@@ -892,7 +892,9 @@ function renderDetail(no) {
     bodyImg.style.display = 'none';
     bodyImg.onload = () => { bodyImg.style.display = ''; };
     bodyImg.onerror = () => { bodyImg.remove(); };
-    bodyImg.src = `images/${state.examId}/${q.no}.png`;
+    // 이미지 경로는 항상 "출처 회차/원본 번호" 기준. 다중 회차 합본에선 state.examId 가
+     // "multi:..." 이고 q.no 가 일련번호이므로 q.srcExamId/q.srcNo 가 있으면 그 쪽을 쓴다.
+    bodyImg.src = `images/${q.srcExamId || state.examId}/${q.srcNo != null ? q.srcNo : q.no}.png`;
     imgWrap.appendChild(bodyImg);
     note.textContent = (q.has_image && q.image_note) ? '📷 ' + q.image_note : '';
   }
@@ -932,7 +934,7 @@ function renderDetail(no) {
     ci.style.display = 'none';
     ci.onload = () => { ci.style.display = ''; };
     ci.onerror = () => { ci.remove(); };
-    ci.src = `images/${state.examId}/${q.no}-${origIdx}.png`;
+    ci.src = `images/${q.srcExamId || state.examId}/${q.srcNo != null ? q.srcNo : q.no}-${origIdx}.png`;
     content.appendChild(ci);
 
     choices.appendChild(el('button', {
@@ -1618,13 +1620,18 @@ function currentCard() {
   const order = state.shuffles[q.no] || orig.map((_, i) => i + 1);
   const shuffledC = order.map(origIdx => orig[origIdx - 1]);
   const newA = order.indexOf(q.a) + 1;
+  // 다중 회차 합본일 땐 사용자에게 보이는 번호(원본 srcNo)와 출처 회차로 외부에 노출.
+  const dispNo = q.srcNo != null ? q.srcNo : q.no;
   return {
-    no: q.no,
+    no: dispNo,
     subject: subjectNameOf(q),
     q: q.q,
     c: shuffledC,
     a: newA > 0 ? newA : q.a, // 안전 fallback
-    has_image: !!q.has_image
+    has_image: !!q.has_image,
+    // 클라이언트 이미지 경로 보조 (서버 buildContext 는 무시)
+    _srcExamId: q.srcExamId || state.examId,
+    _srcNo: dispNo
   };
 }
 
@@ -1688,7 +1695,7 @@ function renderAiSheet() {
     img.style.display = 'none';
     img.onload = () => { img.style.display = ''; };
     img.onerror = () => { img.remove(); };
-    img.src = `images/${state.examId}/${card.no}.png`;
+    img.src = `images/${card._srcExamId || state.examId}/${card._srcNo != null ? card._srcNo : card.no}.png`;
     ctx.appendChild(img);
   }
 
@@ -1798,9 +1805,12 @@ async function sendAiMessage(text) {
 
   // 이미지 첨부: 본문(<no>.png) + 선택지(<no>-k.png). has_image 플래그와 무관하게
   // 파일 존재 기반으로 수집(없으면 무시). 셔플 순서로 정렬해 AI 가 본 화면과 같은
-  // 1~N 번 순서로 이미지를 받게 한다.
+  // 1~N 번 순서로 이미지를 받게 한다. 다중 회차 합본에선 출처 회차/원본 번호로 조회.
   const images = await fetchQuestionImages(
-    state.examId, card.no, (card.c || []).length, state.shuffles[card.no]
+    card._srcExamId || state.examId,
+    card._srcNo != null ? card._srcNo : card.no,
+    (card.c || []).length,
+    state.shuffles[state.currentNo]
   );
 
   try {
