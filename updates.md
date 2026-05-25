@@ -1,5 +1,18 @@
 # Updates
 
+## v1.21 — 2026-05-24
+- **하프하프 모의고사 추가**: 과목당 5문제, 총 25문제, 38분. 모의고사 유형 선택 시트에 「하프하프 모의고사」 항목 추가. `state.examVariant === 'quarter'` 로 구분, 결과·기록의 라벨도 일관 적용.
+- **여러 회차 합본 모드**: 홈 하단 «📚 여러 회차 합쳐서 풀기» → 체크박스 선택 → «선택한 회차로 진입». 선택한 회차들의 문제를 모두 합쳐 학습/랜덤/모의고사/지난 모의고사를 모두 수행 가능.
+  - `loadCombinedExam(ids)` — 회차 JSON들을 가져와 통합 가상 회차 빌드. 일련번호 재부여(state.exam.questions 내 unique). 각 문제에 `srcExamId`/`srcExamTitle`/`srcNo` 보존.
+  - 통합 `examId = "multi:id1,id2,..."` (정렬). 같은 조합은 같은 LS 스코프 → 태그·메모·모의고사 기록 공유.
+  - 표시: 상세 헤더·학습 리스트 카드에서 문제 번호를 «시험명 - 원본번호» 로 표기. 결과 화면 O/X 격자 셀은 원본 번호 + 호버 시 풀 라벨.
+- 코드: `app.js`(state·`loadCombinedExam`·`qDisplayLabel`/`qShortNo`·`renderHome` 다중 선택·`renderDetail`·`renderQuestionCard`·`renderResult`·홈 click 핸들러), `index.html`(`#home-multi-bar`), `styles.css`(`.home-multi-bar`·`.multi-check`·`.multi-toggle`·`.multi-btn`·`.src-exam-chip`).
+
+## v1.20 — 2026-05-24
+- **AI 요청에 객관식 셔플 반영**: `currentCard()` 가 사용자에게 보이는 순서대로 `c` 를 재정렬하고 `a` 를 새 위치로 환산해 `/api/ask` 로 전송. 이전엔 원본 인덱스(`q.a`)를 보내 AI 가 "1번/2번..." 이라고 답한 위치가 사용자가 보는 화면 위치와 어긋나는 문제가 있었음. 이제 사용자가 보는 ①②③④ 와 AI 가 언급하는 번호가 일치.
+- `fetchQuestionImages(examId, no, choiceCount, order)` 에 선택지 순서 인자 추가 — 셔플된 순서로 선택지 이미지를 첨부해 멀티모달 입력도 일관성 유지.
+- 코드: `app.js` `currentCard`·`fetchQuestionImages`·`sendAiMessage`.
+
 ## v1.19 — 2026-05-24
 - **모의고사 중 메모·AI 질문·태그 칩 숨김**: `state.mode === 'exam'` 일 때 `#notes-section`·`#btn-ai-ask`·`#btn-tag` 를 `.hidden` 처리. 시험 중에는 외부 정보·기존 태그 노출을 차단. 학습·랜덤·복기에서는 모두 그대로 표시.
 - **상하 화살표로 선택지 이동**:

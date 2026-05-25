@@ -17,6 +17,7 @@
 - 모의고사: `state.examAnswers = {no: idx}` (시험 시작~제출까지 메모리 유지)
 - **단, 제출 완료된 모의고사**는 `cbt_exam_history_v1`에 응시 기록 스냅샷(examSet + answers + 점수)으로 보관된다 — 복기 전용. 복기는 상세 화면을 `review` 모드로 재사용하며 답안은 이 스냅샷에서 읽는다.
 - **답·정답·태그·채점 모두 "원본 인덱스" 기준으로 일관 저장**. 선택지 셔플은 표시에만 적용되며 `state.shuffles[no]`(메모리)가 한 세션 동안 문제별 순서를 고정한다. `onChooseAnswer`에서 화면 위치 → 원본 인덱스로 변환하여 저장하므로 `q.a`·`attempt.answers`·자동 태그·`cbt_tags_v2`는 셔플과 무관하게 안정적이다.
+- **다중 회차 합본 모드**: `loadCombinedExam(ids)` 가 통합 가상 회차를 만들고 `state.examId = "multi:id1,id2,..."`(정렬) 로 둔다. 같은 조합은 같은 LS 스코프를 가지므로 태그·메모·북마크·AI·모의고사 기록이 그 조합 안에서 공유된다(단일 회차 스코프와는 분리). 합본의 각 문제는 일련번호로 재부여되며 `srcExamId`·`srcExamTitle`·`srcNo` 가 보존되어 화면에 «시험명 - 원본번호» 로 표시된다.
 
 ## 2. 헬퍼 (Part 2)
 
