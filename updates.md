@@ -1,5 +1,10 @@
 # Updates
 
+## v1.20 — 2026-05-24
+- **AI 요청에 객관식 셔플 반영**: `currentCard()` 가 사용자에게 보이는 순서대로 `c` 를 재정렬하고 `a` 를 새 위치로 환산해 `/api/ask` 로 전송. 이전엔 원본 인덱스(`q.a`)를 보내 AI 가 "1번/2번..." 이라고 답한 위치가 사용자가 보는 화면 위치와 어긋나는 문제가 있었음. 이제 사용자가 보는 ①②③④ 와 AI 가 언급하는 번호가 일치.
+- `fetchQuestionImages(examId, no, choiceCount, order)` 에 선택지 순서 인자 추가 — 셔플된 순서로 선택지 이미지를 첨부해 멀티모달 입력도 일관성 유지.
+- 코드: `app.js` `currentCard`·`fetchQuestionImages`·`sendAiMessage`.
+
 ## v1.19 — 2026-05-24
 - **모의고사 중 메모·AI 질문·태그 칩 숨김**: `state.mode === 'exam'` 일 때 `#notes-section`·`#btn-ai-ask`·`#btn-tag` 를 `.hidden` 처리. 시험 중에는 외부 정보·기존 태그 노출을 차단. 학습·랜덤·복기에서는 모두 그대로 표시.
 - **상하 화살표로 선택지 이동**:

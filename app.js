@@ -1476,12 +1476,18 @@ function currentCard() {
   if (!state.exam || state.currentNo == null) return null;
   const q = state.exam.questions.find(x => x.no === state.currentNo);
   if (!q) return null;
+  // 객관식 셔플을 반영해 사용자에게 보이는 순서대로 c·a 를 재구성한다.
+  // AI 응답이 "1번·2번..." 을 언급할 때 사용자가 화면에서 보는 위치와 일치하도록.
+  const orig = (q.c || []);
+  const order = state.shuffles[q.no] || orig.map((_, i) => i + 1);
+  const shuffledC = order.map(origIdx => orig[origIdx - 1]);
+  const newA = order.indexOf(q.a) + 1;
   return {
     no: q.no,
     subject: subjectNameOf(q),
     q: q.q,
-    c: q.c,
-    a: q.a,
+    c: shuffledC,
+    a: newA > 0 ? newA : q.a, // 안전 fallback
     has_image: !!q.has_image
   };
 }
@@ -1622,13 +1628,18 @@ async function fetchOneImage(examId, name) {
 }
 
 // 한 문제에 속한 이미지 모두 수집: 본문 <no>.png + 선택지 <no>-1.png ~ <no>-N.png
-async function fetchQuestionImages(examId, no, choiceCount) {
+// order 가 주어지면 선택지 이미지를 그 순서(원본 1-based 인덱스 배열)대로 가져온다 — AI 가
+// 본 화면과 같은 순서로 이미지를 받도록 하기 위함. (셔플 반영)
+async function fetchQuestionImages(examId, no, choiceCount, order) {
   const out = [];
   const body = await fetchOneImage(examId, `${no}.png`);
   if (body) out.push(body);
   const n = Math.max(4, choiceCount || 0);
-  for (let i = 1; i <= n; i++) {
-    const ci = await fetchOneImage(examId, `${no}-${i}.png`);
+  const seq = (Array.isArray(order) && order.length)
+    ? order
+    : Array.from({ length: n }, (_, i) => i + 1);
+  for (const origIdx of seq) {
+    const ci = await fetchOneImage(examId, `${no}-${origIdx}.png`);
     if (ci) out.push(ci);
   }
   return out;
@@ -1650,8 +1661,11 @@ async function sendAiMessage(text) {
     .map(m => ({ role: m.role === 'user' ? 'user' : 'model', content: m.content }));
 
   // 이미지 첨부: 본문(<no>.png) + 선택지(<no>-k.png). has_image 플래그와 무관하게
-  // 파일 존재 기반으로 수집(없으면 무시). 실제 문제와 시각 자료를 최대한 함께 전달.
-  const images = await fetchQuestionImages(state.examId, card.no, (card.c || []).length);
+  // 파일 존재 기반으로 수집(없으면 무시). 셔플 순서로 정렬해 AI 가 본 화면과 같은
+  // 1~N 번 순서로 이미지를 받게 한다.
+  const images = await fetchQuestionImages(
+    state.examId, card.no, (card.c || []).length, state.shuffles[card.no]
+  );
 
   try {
     const res = await fetch('/api/ask', {
