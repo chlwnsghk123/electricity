@@ -38,10 +38,12 @@ const TAG_COLOR_EMOJI = {
 const PASS = { perSubjectMin: 8, averageMin: 12 };
 
 // 모의고사 시간 & 문제 수
-const EXAM_FULL_MS  = 150 * 60 * 1000;
-const EXAM_HALF_MS  =  75 * 60 * 1000;
-const PER_SUBJECT_FULL = 20;
-const PER_SUBJECT_HALF = 10;
+const EXAM_FULL_MS    = 150 * 60 * 1000;
+const EXAM_HALF_MS    =  75 * 60 * 1000;
+const EXAM_QUARTER_MS =  38 * 60 * 1000; // 하프하프(과목당 5)
+const PER_SUBJECT_FULL    = 20;
+const PER_SUBJECT_HALF    = 10;
+const PER_SUBJECT_QUARTER =  5;
 const TIMER_WARN_MS = 10 * 60 * 1000;
 
 // AI 대화 자동 만료: 마지막 열람·송수신으로부터 70분
@@ -75,6 +77,10 @@ const state = {
 
   // 객관식 셔플 — 한 세션 동안 문제별로 고정(페이지 재로딩/회차 변경 시 리셋)
   shuffles: {},               // { [no]: number[] } 원본 1-based 인덱스의 현재 표시 순서
+
+  // 홈 다중 회차 선택 모드
+  multiSelectMode: false,
+  multiSelected: null,        // Set<examId>|null
 
   // 모의고사 결과·복기
   resultAttempt: null,        // 결과 화면이 보여주는 응시 기록 (제출 직후 또는 지난 모의고사)
@@ -520,6 +526,78 @@ async function loadExam(examId) {
   state.shuffles    = {};
   return exam;
 }
+
+// 여러 회차를 합쳐 통합 가상 회차를 만든다. 각 문제에 srcExamId/srcExamTitle/srcNo 보존.
+// state.examId 는 "multi:id1,id2,..." 형식 — 같은 조합이면 같은 LS 스코프(태그·메모·이력 공유).
+async function loadCombinedExam(ids) {
+  if (!Array.isArray(ids) || !ids.length) throw new Error('회차를 1개 이상 선택하세요');
+  const entries = ids
+    .map(id => (state.manifest.exams || []).find(e => e.id === id))
+    .filter(e => e && e.available);
+  if (!entries.length) throw new Error('선택한 회차를 사용할 수 없습니다');
+  const sortedIds = entries.map(e => e.id).slice().sort();
+
+  const loaded = [];
+  for (const id of sortedIds) {
+    const entry = entries.find(e => e.id === id);
+    if (!entry) continue;
+    const res = await fetch(entry.file, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`${entry.title} 불러오기 실패`);
+    loaded.push({ id, entry, data: await res.json() });
+  }
+
+  const firstSubs = (loaded[0].data.meta && loaded[0].data.meta.subjects) || [];
+  const combined = {
+    meta: {
+      exam: '통합',
+      round: `${loaded.length}개 회차 합본`,
+      total_questions: 0,
+      pass_criteria: (loaded[0].data.meta && loaded[0].data.meta.pass_criteria) || '',
+      subjects: firstSubs.map(s => ({ no: s.no, name: s.name })),
+      sourceIds: sortedIds
+    },
+    questions: []
+  };
+  let seq = 0;
+  loaded.forEach(({ id, entry, data }) => {
+    (data.questions || []).forEach(q => {
+      seq++;
+      combined.questions.push({
+        ...q,
+        no: seq,            // 통합 일련번호 (state.exam.questions 안에서 unique)
+        srcExamId: id,
+        srcExamTitle: entry.title,
+        srcNo: q.no
+      });
+    });
+  });
+  combined.meta.total_questions = combined.questions.length;
+
+  state.exam = combined;
+  state.examId = 'multi:' + sortedIds.join(',');
+  state.subjectNames = (combined.meta.subjects || []).map(s => s.name);
+  state.subjectBy = {};
+  (combined.meta.subjects || []).forEach(s => { state.subjectBy[s.no] = s.name; });
+  state.examAnswers  = {};
+  state.tempAnswer   = null;
+  state.shuffles     = {};
+  state.resultAttempt = null;
+  state.reviewAttempt = null;
+  state.multiSelectMode = false;
+  state.multiSelected   = null;
+  return combined;
+}
+
+// 문제의 화면용 라벨/번호 — 다중 회차일 땐 "시험명 - 원본번호".
+function qDisplayLabel(q) {
+  if (!q) return '';
+  if (q.srcExamTitle) return `${q.srcExamTitle} - ${q.srcNo}`;
+  return `문제 ${q.no}`;
+}
+function qShortNo(q) {
+  if (!q) return '';
+  return String(q.srcNo != null ? q.srcNo : q.no);
+}
 function subjectNameOf(q) {
   if (typeof q.subject === 'string') return q.subject;
   return (state.subjectBy && state.subjectBy[q.subject]) || '기타';
@@ -543,26 +621,64 @@ function renderHome() {
   const list = qs('#exam-list');
   if (!list) return;
   list.innerHTML = '';
+  const inMulti = !!state.multiSelectMode;
+  if (!state.multiSelected) state.multiSelected = new Set();
+  const selected = state.multiSelected;
+
   (state.manifest.exams || []).forEach(e => {
     const main = el('div', null, [
       el('div', { class: 'title' }, e.title)
     ]);
     const rightKids = [];
-    if (e.available && e.count) {
-      const correct = correctCountOfExam(e.id);
-      rightKids.push(el('span', { class: 'progress' }, `${correct} / ${e.count}`));
+    if (inMulti && e.available) {
+      const chk = selected.has(e.id);
+      rightKids.push(el('span', { class: 'multi-check ' + (chk ? 'on' : '') }, chk ? '✓' : ''));
+    } else {
+      if (e.available && e.count) {
+        const correct = correctCountOfExam(e.id);
+        rightKids.push(el('span', { class: 'progress' }, `${correct} / ${e.count}`));
+      }
+      rightKids.push(e.available
+        ? el('span', { class: 'chev' }, '›')
+        : el('span', { class: 'badge-soon' }, '준비 중'));
     }
-    rightKids.push(e.available
-      ? el('span', { class: 'chev' }, '›')
-      : el('span', { class: 'badge-soon' }, '준비 중'));
     const right = el('span', { class: 'exam-item-right' }, rightKids);
+    const action = (inMulti && e.available) ? 'toggle-multi' : 'pick-exam';
+    const cls = 'exam-item' + (inMulti && selected.has(e.id) ? ' selected' : '');
     const item = el('button', {
-      class: 'exam-item',
+      class: cls,
       disabled: e.available ? null : true,
-      dataset: { action: 'pick-exam', examId: e.id, available: String(!!e.available) }
+      dataset: { action, examId: e.id, available: String(!!e.available) }
     }, [main, right]);
     list.appendChild(item);
   });
+
+  // 다중 선택 진입/취소 바
+  const bar = qs('#home-multi-bar');
+  if (bar) {
+    bar.innerHTML = '';
+    if (inMulti) {
+      bar.appendChild(el('div', { class: 'home-multi-count' },
+        selected.size ? `${selected.size}개 회차 선택됨` : '회차를 1개 이상 선택하세요'));
+      const row = el('div', { class: 'home-multi-actions' }, [
+        el('button', {
+          class: 'multi-btn ghost',
+          dataset: { action: 'cancel-multi' }
+        }, '취소'),
+        el('button', {
+          class: 'multi-btn primary',
+          disabled: selected.size < 1 ? true : null,
+          dataset: { action: 'enter-multi' }
+        }, '선택한 회차로 진입 →')
+      ]);
+      bar.appendChild(row);
+    } else {
+      bar.appendChild(el('button', {
+        class: 'multi-toggle',
+        dataset: { action: 'start-multi' }
+      }, '📚 여러 회차 합쳐서 풀기'));
+    }
+  }
 }
 
 // ---------- 모드 선택 ----------
@@ -685,7 +801,7 @@ function renderQuestionCard(q, bookmarks, tags) {
   const rightKids = [];
   if (bookmarks.has(q.no)) rightKids.push(el('span', { class: 'bookmark-on', title: '북마크' }, '★'));
   const color = tags[q.no];
-  // 태그 라벨은 과목 배지 오른쪽 옆에 나란히 배치한다.
+  // 태그 라벨은 과목 배지 오른쪽 옆에 나란히 배치한다. 다중 회차면 시험명 칩 추가.
   const subKids = [el('span', { class: 'subject-badge' }, subjectNameOf(q))];
   if (color) {
     subKids.push(el('span', {
@@ -693,12 +809,15 @@ function renderQuestionCard(q, bookmarks, tags) {
       title: TAG_MEANING[color]
     }, TAG_MEANING[color]));
   }
+  if (q.srcExamTitle) {
+    subKids.push(el('span', { class: 'src-exam-chip', title: q.srcExamTitle }, q.srcExamTitle));
+  }
 
   return el('button', {
     class: 'q-card',
     dataset: { action: 'open-detail', no: String(q.no) }
   }, [
-    el('div', { class: 'q-left' }, String(q.no)),
+    el('div', { class: 'q-left' }, qShortNo(q)),
     el('div', { class: 'q-main' }, [
       el('div', { class: 'q-preview' }, preview(q.q, 80)),
       el('div', { class: 'q-sub' }, subKids)
@@ -721,10 +840,10 @@ function renderDetail(no) {
   const aiBtn = qs('#btn-ai-ask'); if (aiBtn) aiBtn.classList.toggle('hidden', examMode);
   const tagBtn = qs('#btn-tag'); if (tagBtn) tagBtn.classList.toggle('hidden', examMode);
 
-  // 타이틀
-  qs('#detail-title').textContent = `문제 ${q.no}`;
+  // 타이틀 — 다중 회차일 땐 "시험명 - 원본번호"
+  qs('#detail-title').textContent = qDisplayLabel(q);
   qs('#detail-subject').textContent = subjectNameOf(q);
-  qs('#detail-no').textContent = `No. ${q.no}`;
+  qs('#detail-no').textContent = 'No. ' + qShortNo(q);
 
   // 진행도 표시 (모의고사/랜덤 모드에서 i/N)
   const progress = qs('#detail-progress');
@@ -1077,7 +1196,9 @@ function renderResult() {
     el('div', { class: 'small' }, `평균 ${r.avg.toFixed(1)}점 · 환산 ${r.score100}점`)
   ]));
 
-  const variantLabel = attempt.variant === 'half' ? '하프 모의고사' : '정식 모의고사';
+  const variantLabel = attempt.variant === 'half' ? '하프 모의고사'
+                     : attempt.variant === 'quarter' ? '하프하프 모의고사'
+                     : '정식 모의고사';
   const when = new Date(attempt.submittedAt).toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' });
   const dur = attempt.durationMs ? ' · 소요 ' + Math.max(1, Math.round(attempt.durationMs / 60000)) + '분' : '';
   wrap.appendChild(el('div', { class: 'result-meta' }, `${variantLabel} · ${when}${dur}`));
@@ -1100,9 +1221,12 @@ function renderResult() {
     if (sel == null) cls += 'blank';
     else if (q && sel === q.a) cls += 'correct';
     else cls += 'wrong';
+    // 다중 회차일 땐 원본 번호 표시 (셀 라벨); 호버 시 시험명 - 번호 전체.
+    const label = qShortNo(q || { no });
+    const title = q && q.srcExamTitle ? `${q.srcExamTitle} - ${q.srcNo}` : '';
     grid.appendChild(el('button', {
-      class: cls, dataset: { action: 'review-q', no: String(no) }
-    }, String(no)));
+      class: cls, title, dataset: { action: 'review-q', no: String(no) }
+    }, label));
   });
   wrap.appendChild(grid);
   wrap.appendChild(el('div', { class: 'q-grid-legend' }, [
@@ -1144,7 +1268,9 @@ function renderHistory() {
   }
   list.forEach(a => {
     const r = a.result || {};
-    const variantLabel = a.variant === 'half' ? '하프 모의고사' : '정식 모의고사';
+    const variantLabel = a.variant === 'half' ? '하프 모의고사'
+                       : a.variant === 'quarter' ? '하프하프 모의고사'
+                       : '정식 모의고사';
     const when = new Date(a.submittedAt).toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' });
     const correct = (r.scores || []).reduce((s, x) => s + x.correct, 0);
     const total = (r.scores || []).reduce((s, x) => s + x.total, 0);
@@ -1211,16 +1337,22 @@ function enterMode(mode) {
 
 // ---- 모의고사 유형 선택 (정식 / 하프) ----
 function openExamVariantSheet() {
+  const subN = state.subjectNames.length;
   openChoiceSheet('모의고사 유형 선택', [
     {
       title: '정식 모의고사',
-      desc: `과목당 ${PER_SUBJECT_FULL}문제 · 총 ${state.subjectNames.length * PER_SUBJECT_FULL}문제 · 150분`,
+      desc: `과목당 ${PER_SUBJECT_FULL}문제 · 총 ${subN * PER_SUBJECT_FULL}문제 · 150분`,
       onClick: () => { closeChoiceSheet(); startExam('full'); }
     },
     {
       title: '하프 모의고사',
-      desc: `과목당 ${PER_SUBJECT_HALF}문제 · 총 ${state.subjectNames.length * PER_SUBJECT_HALF}문제 · 75분`,
+      desc: `과목당 ${PER_SUBJECT_HALF}문제 · 총 ${subN * PER_SUBJECT_HALF}문제 · 75분`,
       onClick: () => { closeChoiceSheet(); startExam('half'); }
+    },
+    {
+      title: '하프하프 모의고사',
+      desc: `과목당 ${PER_SUBJECT_QUARTER}문제 · 총 ${subN * PER_SUBJECT_QUARTER}문제 · 38분`,
+      onClick: () => { closeChoiceSheet(); startExam('quarter'); }
     }
   ]);
 }
@@ -1231,8 +1363,12 @@ function startExam(variant) {
   state.examAnswers = {};
   state.tempAnswer = null;
 
-  const perSub = variant === 'full' ? PER_SUBJECT_FULL : PER_SUBJECT_HALF;
-  const limitMs = variant === 'full' ? EXAM_FULL_MS : EXAM_HALF_MS;
+  const perSub = variant === 'full' ? PER_SUBJECT_FULL
+               : variant === 'half' ? PER_SUBJECT_HALF
+               : PER_SUBJECT_QUARTER;
+  const limitMs = variant === 'full' ? EXAM_FULL_MS
+                : variant === 'half' ? EXAM_HALF_MS
+                : EXAM_QUARTER_MS;
 
   // 과목별로 그룹 → 각 과목 내에서 셔플 → 상위 perSub개
   const bySubject = {};
@@ -1791,18 +1927,53 @@ function bindEvents() {
     });
   }
 
-  // 홈: 회차 선택
+  // 홈: 회차 선택 / 다중 선택 모드
   qs('#home').addEventListener('click', async e => {
-    const btn = e.target.closest('[data-action="pick-exam"]');
-    if (!btn) return;
-    if (btn.dataset.available !== 'true') { toast('아직 준비 중입니다'); return; }
-    const id = btn.dataset.examId;
-    try {
-      await loadExam(id);
-      renderModes();
-      show('modes');
-    } catch (err) {
-      toast('불러오기 실패: ' + (err.message || err));
+    // 단일 회차 진입
+    const pick = e.target.closest('[data-action="pick-exam"]');
+    if (pick) {
+      if (pick.dataset.available !== 'true') { toast('아직 준비 중입니다'); return; }
+      try {
+        await loadExam(pick.dataset.examId);
+        renderModes();
+        show('modes');
+      } catch (err) { toast('불러오기 실패: ' + (err.message || err)); }
+      return;
+    }
+    // 다중 선택 모드 시작
+    if (e.target.closest('[data-action="start-multi"]')) {
+      state.multiSelectMode = true;
+      state.multiSelected = new Set();
+      renderHome();
+      return;
+    }
+    // 다중 선택 취소
+    if (e.target.closest('[data-action="cancel-multi"]')) {
+      state.multiSelectMode = false;
+      state.multiSelected = null;
+      renderHome();
+      return;
+    }
+    // 다중 선택 토글
+    const tog = e.target.closest('[data-action="toggle-multi"]');
+    if (tog) {
+      const id = tog.dataset.examId;
+      if (!state.multiSelected) state.multiSelected = new Set();
+      if (state.multiSelected.has(id)) state.multiSelected.delete(id);
+      else state.multiSelected.add(id);
+      renderHome();
+      return;
+    }
+    // 다중 회차 진입
+    if (e.target.closest('[data-action="enter-multi"]')) {
+      const ids = Array.from(state.multiSelected || []);
+      if (!ids.length) { toast('회차를 1개 이상 선택하세요'); return; }
+      try {
+        await loadCombinedExam(ids);
+        renderModes();
+        show('modes');
+      } catch (err) { toast('통합 진입 실패: ' + (err.message || err)); }
+      return;
     }
   });
 
